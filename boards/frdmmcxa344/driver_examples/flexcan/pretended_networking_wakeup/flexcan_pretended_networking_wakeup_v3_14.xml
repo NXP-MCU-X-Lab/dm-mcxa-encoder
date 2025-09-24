@@ -1,0 +1,154 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ksdk:examples xmlns:ksdk="http://nxp.com/ksdk/2.0/ksdk_manifest_v3.0.xsd" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://nxp.com/ksdk/2.0/ksdk_manifest_v3.0.xsd manifest.xsd">
+  <externalDefinitions>
+    <definition extID="cm33_core0_MCXA344"/>
+    <definition extID="platform.drivers.clock.MCXA344"/>
+    <definition extID="platform.drivers.inputmux_connections.MCXA344"/>
+    <definition extID="platform.drivers.reset.MCXA344"/>
+    <definition extID="CMSIS_Include_core_cm.MCXA344"/>
+    <definition extID="device.MCXA344_CMSIS.MCXA344"/>
+    <definition extID="device.MCXA344_system.MCXA344"/>
+    <definition extID="device.MCXA344_startup.MCXA344"/>
+    <definition extID="platform.drivers.common.MCXA344"/>
+    <definition extID="platform.drivers.flexcan.MCXA344"/>
+    <definition extID="platform.drivers.gpio.MCXA344"/>
+    <definition extID="platform.drivers.lpuart.MCXA344"/>
+    <definition extID="platform.drivers.mcx_cmc.MCXA344"/>
+    <definition extID="platform.drivers.mcx_spc.MCXA344"/>
+    <definition extID="platform.drivers.port.MCXA344"/>
+    <definition extID="platform.utilities.assert_lite.MCXA344"/>
+    <definition extID="platform.utilities.misc_utilities.MCXA344"/>
+    <definition extID="utility.str.MCXA344"/>
+    <definition extID="utility.debug_console_lite.MCXA344"/>
+    <definition extID="component.lpuart_adapter.MCXA344"/>
+    <definition extID="iar"/>
+    <definition extID="mdk"/>
+    <definition extID="armgcc"/>
+    <definition extID="mcuxpresso"/>
+    <definition extID="com.nxp.mcuxpresso"/>
+  </externalDefinitions>
+  <example id="frdmmcxa344_flexcan_pretended_networking_wakeup" name="flexcan_pretended_networking_wakeup" device_core="cm33_core0_MCXA344" dependency="platform.drivers.clock.MCXA344 platform.drivers.inputmux_connections.MCXA344 platform.drivers.reset.MCXA344 CMSIS_Include_core_cm.MCXA344 device.MCXA344_CMSIS.MCXA344 device.MCXA344_system.MCXA344 device.MCXA344_startup.MCXA344 platform.drivers.common.MCXA344 platform.drivers.flexcan.MCXA344 platform.drivers.gpio.MCXA344 platform.drivers.lpuart.MCXA344 platform.drivers.mcx_cmc.MCXA344 platform.drivers.mcx_spc.MCXA344 platform.drivers.port.MCXA344 platform.utilities.assert_lite.MCXA344 platform.utilities.misc_utilities.MCXA344 utility.str.MCXA344 utility.debug_console_lite.MCXA344 component.lpuart_adapter.MCXA344" category="driver_examples/flexcan">
+    <projects>
+      <project type="com.crt.advproject.projecttype.exe" nature="org.eclipse.cdt.core.cnature"/>
+    </projects>
+    <toolchainSettings>
+      <toolchainSetting id_refs="com.nxp.mcuxpresso">
+        <option id="gnu.c.compiler.option.preprocessor.def.symbols" type="stringList">
+          <value>MCUXPRESSO_SDK</value>
+          <value>FLEXCAN_WAIT_TIMEOUT=1000</value>
+          <value>PRINTF_ADVANCED_ENABLE=1</value>
+          <value>SDK_DEBUGCONSOLE=1</value>
+          <value>MCUX_META_BUILD</value>
+          <value>CPU_MCXA344VLL</value>
+          <value>MCXA344_SERIES</value>
+        </option>
+        <option id="gnu.c.link.option.nostdlibs" type="boolean">
+          <value>true</value>
+        </option>
+        <option id="com.crt.advproject.link.fpu" type="enum">
+          <value>com.crt.advproject.link.fpu.fpv5sp.hard</value>
+        </option>
+        <option id="gnu.c.link.option.other" type="stringList">
+          <value>-no-warn-rwx-segments</value>
+        </option>
+        <option id="gnu.c.link.option.group" type="boolean">
+          <value>true</value>
+        </option>
+        <option id="gnu.c.compiler.option.optimization.flags" type="string">
+          <value>-fno-common</value>
+        </option>
+        <option id="com.crt.advproject.c.misc.dialect" type="enum">
+          <value>com.crt.advproject.misc.dialect.gnu99</value>
+        </option>
+        <option id="com.crt.advproject.gcc.fpu" type="enum">
+          <value>com.crt.advproject.gcc.fpu.fpv5sp.hard</value>
+        </option>
+        <option id="gnu.c.compiler.option.misc.other" type="string">
+          <value>-c -ffunction-sections -fdata-sections -fno-builtin -mcpu=cortex-m33</value>
+        </option>
+        <option id="gnu.c.compiler.option.warnings.allwarn" type="boolean">
+          <value>false</value>
+        </option>
+        <option id="gnu.c.compiler.option.warnings.toerrors" type="boolean">
+          <value>false</value>
+        </option>
+        <option id="com.crt.advproject.gas.fpu" type="enum">
+          <value>com.crt.advproject.gas.fpu.fpv5sp.hard</value>
+        </option>
+      </toolchainSetting>
+    </toolchainSettings>
+    <include_paths>
+      <include_path path="." project_relative_path="source" type="c_include"/>
+      <include_path path="." project_relative_path="board" type="c_include"/>
+      <include_path path="." project_relative_path="source" type="asm_include"/>
+    </include_paths>
+    <source path="iar" project_relative_path="./" type="workspace" toolchain="iar">
+      <files mask="flexcan_pretended_networking_wakeup.ewp"/>
+      <files mask="flexcan_pretended_networking_wakeup.ewd"/>
+      <files mask="flexcan_pretended_networking_wakeup.eww"/>
+    </source>
+    <source path="mdk" project_relative_path="./" type="workspace" toolchain="mdk">
+      <files mask="flexcan_pretended_networking_wakeup.uvprojx"/>
+      <files mask="flexcan_pretended_networking_wakeup.uvoptx"/>
+      <files mask="JLinkSettings.JLinkScript"/>
+      <files mask="flexcan_pretended_networking_wakeup.uvmpw"/>
+    </source>
+    <source path="armgcc" project_relative_path="./" type="workspace" toolchain="armgcc">
+      <files mask="build_all.bat"/>
+      <files mask="build_all.sh"/>
+      <files mask="clean.bat"/>
+      <files mask="clean.sh"/>
+      <files mask="CMakeLists.txt"/>
+      <files mask="flags.cmake"/>
+      <files mask="config.cmake"/>
+      <files mask="build_debug.bat"/>
+      <files mask="build_debug.sh"/>
+      <files mask="build_release.bat"/>
+      <files mask="build_release.sh"/>
+    </source>
+    <source path="../../../../../devices/MCXA344" project_relative_path="./" type="workspace" toolchain="armgcc">
+      <files mask="all_lib_device.cmake"/>
+    </source>
+    <source path="." project_relative_path="source" type="src">
+      <files mask="flexcan_pretended_networking_wakeup.c"/>
+    </source>
+    <source path="." project_relative_path="board" type="c_include">
+      <files mask="board.h"/>
+      <files mask="clock_config.h"/>
+    </source>
+    <source path="." project_relative_path="board" type="src">
+      <files mask="board.c"/>
+      <files mask="clock_config.c"/>
+    </source>
+    <source path="iar" project_relative_path="MCXA344/iar" type="linker" toolchain="iar">
+      <files mask="MCXA344_flash.icf"/>
+    </source>
+    <source path="armgcc" project_relative_path="MCXA344/armgcc" type="linker" toolchain="armgcc">
+      <files mask="MCXA344_flash.ld"/>
+    </source>
+    <source path="mdk" project_relative_path="MCXA344/mdk" type="linker" toolchain="mdk">
+      <files mask="MCXA344_flash.scf"/>
+    </source>
+    <source path="." project_relative_path="board" type="c_include">
+      <files mask="pin_mux.h"/>
+    </source>
+    <source path="." project_relative_path="board" type="src">
+      <files mask="pin_mux.c"/>
+    </source>
+    <source path="." project_relative_path="board" type="src">
+      <files mask="hardware_init.c"/>
+    </source>
+    <source path="." project_relative_path="board" type="c_include">
+      <files mask="app.h"/>
+    </source>
+    <source path="." project_relative_path="source" type="c_preinclude">
+      <files mask="mcux_config.h"/>
+    </source>
+    <source path="." project_relative_path="doc" type="doc">
+      <files mask="readme.md"/>
+    </source>
+    <source path="." project_relative_path="doc" type="doc">
+      <files mask="example_board_readme.md"/>
+    </source>
+  </example>
+</ksdk:examples>
