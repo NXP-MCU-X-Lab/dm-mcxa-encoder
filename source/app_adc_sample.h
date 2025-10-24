@@ -56,7 +56,7 @@ typedef struct {
     uint16_t opamp1_inp;    // OPAMP1 positive input (ADC0_A6)
     uint16_t opamp1_inn;    // OPAMP1 negative input (ADC1_A6)
     uint16_t opamp1_out;    // OPAMP1 output (ADC1_A2)
-} adc_encoder_result_t;
+} adc_sample_result_t;
 
 /* Function prototypes */
 
@@ -65,21 +65,21 @@ typedef struct {
  * 
  * @param mode Sampling mode (OUTPUT_ONLY, FULL_DEBUG, or CALIBRATION)
  */
-void ADC_Single_Init(adc_sampling_mode_t mode);
+void adc_init(adc_sampling_mode_t mode);
 
 /**
  * @brief Start conversion and get all encoder signals
  * 
- * @return adc_encoder_result_t Structure containing OPAMP0/1 INP, INN, OUT values
+ * @return adc_sample_result_t Structure containing OPAMP0/1 INP, INN, OUT values
  *         (INP/INN will be 0 if not sampled in current mode)
  */
-adc_encoder_result_t ADC_StartAndGetResults(void);
+adc_sample_result_t adc_read(void);
 
 /**
  * @brief Get current ADC sampling mode
  * 
  * @return adc_sampling_mode_t Current mode
  */
-adc_sampling_mode_t ADC_GetSamplingMode(void);
+adc_sampling_mode_t adc_get_mode(void);
 
 #endif /* _APP_ADC_H_ */

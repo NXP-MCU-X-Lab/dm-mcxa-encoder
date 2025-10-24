@@ -172,6 +172,10 @@ void BOARD_InitDEBUG_UARTPins(void)
     PORT_SetPinConfig(PORT2, 16, &port2_12_13_15_16_17_19_config);
     PORT_SetPinConfig(PORT2, 17, &port2_12_13_15_16_17_19_config);
     PORT_SetPinConfig(PORT2, 19, &port2_12_13_15_16_17_19_config);
+                                                    
+                                                    
+    PORT_SetPinConfig(PORT3, 27, &port2_12_13_15_16_17_19_config);
+    PORT_SetPinConfig(PORT3, 28, &port2_12_13_15_16_17_19_config);
 }
 
 /* clang-format off */

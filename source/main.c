@@ -2,15 +2,16 @@
 #include "fsl_debug_console.h"
 #include "board.h"
 #include "app.h"
-#include "app_adc_single.h"
+#include "app_adc_sample.h"
 #include "app_timer.h"
 #include "fsl_opamp.h"
 #include "fsl_spc.h"
 #include "app_encoder.h"
 #include "hipnuc.h"
 #include <stdio.h>
+#include "app_sampler.h"
 
-#define DEMO_OPAMP_COMP_CAP       kOPAMP_FitGain4x
+#define DEMO_OPAMP_COMP_CAP       kOPAMP_FitGain2x
 #define DEMO_OPAMP_BIAS_CURRENT   kOPAMP_NoChange
 
 /*! @brief Configure OPAMP modules */
@@ -28,8 +29,10 @@ static void DEMO_DoOpampConfig(void)
     OPAMP_Init(OPAMP0, &config);
     OPAMP_Init(OPAMP1, &config);
     
-  //  OPAMP_Enable(OPAMP0, true);
-  //  OPAMP_Enable(OPAMP1, true);
+    SPC_SetActiveModeBandgapModeConfig(SPC0, kSPC_BandgapEnabledBufferEnabled);
+    
+    OPAMP_Enable(OPAMP0, true);
+    OPAMP_Enable(OPAMP1, true);
 }
 
 /* Initialize SysTick for 10Hz interrupt */
@@ -73,6 +76,9 @@ int main(void)
     freq = CLOCK_GetFreq(kCLOCK_FroHfDiv);
     printf("FRO_HF_DIV:    %u Hz (%u MHz)\r\n", freq, freq / 1000000U);
     
+    /* Initialize ADC and OPAMP */
+    DEMO_DoOpampConfig();
+    
     /* ========== Mode Selection ========== */
     printf("\r\n=== Select ADC Sampling Mode ===\r\n");
     printf("1: Normal Mode (OPAMP outputs only, 2ch)\r\n");
@@ -93,9 +99,7 @@ int main(void)
         ch = '1';  // Force to mode 1
     }
     
-    /* Initialize ADC and OPAMP */
-    ADC_Single_Init(adc_mode);
-    DEMO_DoOpampConfig();
+    adc_init(adc_mode);
     
     /* ========== Auto Calibration Mode ========== */
     if (ch == '3') {
@@ -109,7 +113,7 @@ int main(void)
         uint16_t cos_min = 65535, cos_max = 0;
 
         for (int i = 0; i < 300000; i++) {
-            adc_encoder_result_t result = ADC_StartAndGetResults();
+            adc_sample_result_t result = adc_read();
             
             if (result.opamp0_out < sin_min) sin_min = result.opamp0_out;
             if (result.opamp0_out > sin_max) sin_max = result.opamp0_out;
@@ -123,13 +127,17 @@ int main(void)
             SDK_DelayAtLeastUs(100, CLOCK_GetFreq(kCLOCK_CoreSysClk));
         }
 
-        ENCODER_Calibrate(sin_min, sin_max, cos_min, cos_max);
+        encoder_calibrate(sin_min, sin_max, cos_min, cos_max);
         printf("=== Calibration Complete ===\r\n");
         printf("OPAMP0_OUT (Sin): [%d, %d]\r\n", sin_min, sin_max);
         printf("OPAMP1_OUT (Cos): [%d, %d]\r\n\r\n", cos_min, cos_max);
         
         ch = '1';  // Switch to normal mode after calibration
     }
+    
+    
+    sampler_init(10*1000);
+    sampler_start();
     
     /* ========== Normal/Debug Mode ========== */
     if (ch == '1' || ch == '2') {
@@ -143,13 +151,11 @@ int main(void)
         uint32_t frame_count = 0;
         
         while (1) {
-            adc_encoder_result_t result;
+            adc_sample_result_t result;
             encoder_result_t encoderResult;
             
-            TIMER_Start();
-            result = ADC_StartAndGetResults();
-            ENCODER_Process(result.opamp0_out, result.opamp1_out, &encoderResult);
-            float elapsed_time_us = TIMER_Stop();
+            sampler_copy_latest(&encoderResult);
+            sampler_copy_latest_raw(&result);
             
             /* Convert to voltage */
             float v_op0_out = (result.opamp0_out * 3.3f) / 65536.0f;
@@ -158,9 +164,12 @@ int main(void)
             /* Pack common data */
             mag[0] = v_op0_out;                    // Sin output
             mag[1] = v_op1_out;                    // Cos output
-            mag[2] = encoderResult.angle_deg;      // Angle in degrees
             
-            if (ADC_GetSamplingMode() == ADC_MODE_FULL_DEBUG) {
+            extern float adc_sample_time_us;
+            
+            mag[2] = adc_sample_time_us;
+            
+            if (adc_get_mode() == ADC_MODE_FULL_DEBUG) {
                 /* Debug mode: calculate differential voltages */
                 int16_t diff0 = (int16_t)result.opamp0_inp - (int16_t)result.opamp0_inn;
                 int16_t diff1 = (int16_t)result.opamp1_inp - (int16_t)result.opamp1_inn;
@@ -171,8 +180,9 @@ int main(void)
                 acc[1] = v_diff1;                      // OPAMP1 differential
                 acc[2] = v_op0_out - v_op1_out;        // Output difference
                 
+                
                 /* Print debug info every 10 frames */
-//                    printf("Ang:%6.2f° | S/C:[%+.3f,%+.3f] | Diff:[%+.3f,%+.3f] | Mag:%.3f | %5.1fus\r\n",
+//                    printf("Ang:%6.2fï¿½ | S/C:[%+.3f,%+.3f] | Diff:[%+.3f,%+.3f] | Mag:%.3f | %5.1fus\r\n",
 //                           encoderResult.angle_deg,
 //                           encoderResult.sin_norm,
 //                           encoderResult.cos_norm,
@@ -184,7 +194,7 @@ int main(void)
             
             /* Build and send HiPNUC frame */
             int frame_len = bin_hi91data(
-                tx_buf, 0, 0, acc, gyr, quat, mag, 0, 0, 0, 0, 0
+                tx_buf, 0, 0, acc, gyr, quat, mag, 0, 0, encoderResult.angle_deg, encoderResult.turns, 0
             );
             
             for (int i = 0; i < frame_len; i++) {

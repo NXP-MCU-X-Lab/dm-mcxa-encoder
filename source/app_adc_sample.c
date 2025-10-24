@@ -10,14 +10,14 @@
 #include "fsl_inputmux.h"
 #include "fsl_clock.h"
 #include "fsl_reset.h"
-#include "app_adc_single.h"
+#include "app_adc_sample.h"
 #include <string.h>
 #include <stdio.h>
 
 /* ADC Hardware Average Configuration */
-#define ADC_HW_AVERAGE_MODE         kLPADC_HardwareAverageCount1
-#define ADC_HW_SAMPEL_TIME_MODE     kLPADC_SampleTimeADCK3
-#define ADC_CLK_DIV                 (2)
+#define ADC_HW_AVERAGE_MODE         kLPADC_HardwareAverageCount16
+#define ADC_HW_SAMPLE_TIME_MODE     kLPADC_SampleTimeADCK3
+#define ADC_CLK_DIV                 (3)
 
 /* Global sampling mode */
 static adc_sampling_mode_t g_adc_mode = ADC_MODE_OUTPUT_ONLY;
@@ -32,7 +32,10 @@ static lpadc_conv_trigger_config_t triggerConfig;
  * Mode 2 (FULL_DEBUG):  Sample all 6 channels (INP, INN, OUT for both OPAMPs)
  * Mode 3 (CALIBRATION): Same as Mode 1
  */
-static void ConfigureConversion(void)
+/* old ConfigureConversion removed; using adc_configure_conversion */
+
+
+static void adc_configure_conversion(void)
 {
     lpadc_conv_command_config_t cmdConfig;
     
@@ -40,7 +43,7 @@ static void ConfigureConversion(void)
     LPADC_GetDefaultConvCommandConfig(&cmdConfig);
     cmdConfig.conversionResolutionMode = kLPADC_ConversionResolutionHigh;
     cmdConfig.hardwareAverageMode = ADC_HW_AVERAGE_MODE;
-    cmdConfig.sampleTimeMode = ADC_HW_SAMPEL_TIME_MODE;
+    cmdConfig.sampleTimeMode = ADC_HW_SAMPLE_TIME_MODE;
     
     if (g_adc_mode == ADC_MODE_FULL_DEBUG) {
         /* ========== Mode 2: Full Debug (6 channels) ========== */
@@ -99,7 +102,8 @@ static void ConfigureConversion(void)
     INPUTMUX_Deinit(INPUTMUX0);
 }
 
-void ADC_Single_Init(adc_sampling_mode_t mode)
+
+void adc_init(adc_sampling_mode_t mode)
 {
     lpadc_config_t adcConfigStruct;
     
@@ -130,7 +134,7 @@ void ADC_Single_Init(adc_sampling_mode_t mode)
     LPADC_DoAutoCalibration(ADC1);
 
     /* Configure conversion commands based on mode */
-    ConfigureConversion();
+    adc_configure_conversion();
 
     /* Get hardware average count as string */
     const char *hwAvgStr;
@@ -170,11 +174,12 @@ void ADC_Single_Init(adc_sampling_mode_t mode)
  * In OUTPUT_ONLY mode: Only reads OPAMP0_OUT and OPAMP1_OUT (INP/INN = 0)
  * In FULL_DEBUG mode:  Reads all 6 channels
  */
-adc_encoder_result_t ADC_StartAndGetResults(void)
+
+adc_sample_result_t adc_read(void)
 {
     __SEV();  // Trigger both ADCs simultaneously
     
-    adc_encoder_result_t result = {0};
+    adc_sample_result_t result = {0};
     uint32_t tmp32;
     
     if (g_adc_mode == ADC_MODE_FULL_DEBUG) {
@@ -257,7 +262,8 @@ adc_encoder_result_t ADC_StartAndGetResults(void)
     return result;
 }
 
-adc_sampling_mode_t ADC_GetSamplingMode(void)
+
+adc_sampling_mode_t adc_get_mode(void)
 {
     return g_adc_mode;
 }

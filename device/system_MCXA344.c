@@ -62,8 +62,8 @@ uint32_t SystemCoreClock = DEFAULT_SYSTEM_CLOCK;
 /* ----------------------------------------------------------------------------
    -- SystemInit()
    ---------------------------------------------------------------------------- */
-
-__attribute__ ((weak)) void SystemInit (void) {
+__attribute__((used)) 
+void SystemInit (void) {
 #if ((__FPU_PRESENT == 1) && (__FPU_USED == 1))
   SCB->CPACR |= ((3UL << 10*2) | (3UL << 11*2));    /* set CP10, CP11 Full Access in Secure mode */
   #if defined (__ARM_FEATURE_CMSE) && (__ARM_FEATURE_CMSE == 3U)
@@ -107,6 +107,6 @@ void SystemCoreClockUpdate (void) {
    -- SystemInitHook()
    ---------------------------------------------------------------------------- */
 
-__attribute__ ((weak)) void SystemInitHook (void) {
+void SystemInitHook (void) {
   /* Void implementation of the weak function. */
 }
