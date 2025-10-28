@@ -4,7 +4,7 @@
 
 #include <stdint.h>
 #include "app_encoder.h"
-#include "app_adc_sample.h"
+#include "app_adc.h"
 
 #ifdef __cplusplus
 extern "C" {

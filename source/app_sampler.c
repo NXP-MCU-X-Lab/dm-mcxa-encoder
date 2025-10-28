@@ -7,6 +7,7 @@
 
 #include "app_sampler.h"
 #include "app_timer.h"
+#include "hardware_init.h"
 
 /* Use CTIMER1 for periodic sampling to avoid interfering with CTIMER0 timing utility */
 #define SAMPLER_CTIMER        CTIMER1
@@ -17,8 +18,6 @@ static volatile uint8_t s_sampler_running = 0;
 static uint32_t s_match_value = 0;
 static volatile encoder_result_t s_last_encoder;
 static volatile adc_sample_result_t s_last_raw;
-float adc_sample_time_us = 0;
-    
 
 /* ISR prototype */
 void CTIMER1_IRQHandler(void);
@@ -27,21 +26,17 @@ void sampler_init(uint32_t freq_hz)
 {
     ctimer_config_t config;
 
-    /* Attach FRO_HF clock to CTIMER1 and set divider to 1 */
-    RESET_ReleasePeripheralReset(kCTIMER1_RST_SHIFT_RSTn);
-    CLOCK_SetClockDiv(kCLOCK_DivCTIMER1, CLOCK_GetFreq(kCLOCK_FroHf) / 1000000);
-    CLOCK_AttachClk(kFRO_HF_to_CTIMER1);
-
     /* Initialize encoder module state */
     encoder_init();
 
-    /* Compute match value for desired frequency */
-    uint32_t ctimer_clk = CLOCK_GetFreq(kCLOCK_FroHf);
-
-    s_match_value = (ctimer_clk / freq_hz);
-    if (s_match_value == 0) {
-        s_match_value = 1; /* minimal */
-    }
+    uint32_t fro_hf_freq = CLOCK_GetFreq(kCLOCK_FroHf);
+    uint32_t divider = 4;
+    CLOCK_SetClockDiv(kCLOCK_DivCTIMER1, divider);
+    CLOCK_AttachClk(kFRO_HF_to_CTIMER1);
+    
+    /* Actual timer clock after divider */
+    uint32_t ctimer_clk = fro_hf_freq / divider;  // 1MHz
+    s_match_value = (ctimer_clk / freq_hz) - 1;   // -1 for 0-based counter
 
     CTIMER_GetDefaultConfig(&config);
     CTIMER_Init(SAMPLER_CTIMER, &config);
@@ -101,9 +96,11 @@ void CTIMER1_IRQHandler(void)
 {
     /* Clear match0 interrupt flag */
     CTIMER_ClearStatusFlags(SAMPLER_CTIMER, kCTIMER_Match0Flag);
-
-    TIMER_Start();
+    
+    TEST_PIN_Set();
+    
     adc_sample_result_t raw = adc_read();
+
     
     s_last_raw = raw;
 
@@ -111,5 +108,5 @@ void CTIMER1_IRQHandler(void)
     encoder_process(raw.opamp0_out, raw.opamp1_out, &enc);
     s_last_encoder = enc;
     
-    adc_sample_time_us = TIMER_Stop();
+    TEST_PIN_Clear();
 }

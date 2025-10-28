@@ -1,0 +1,427 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FRDM-MCXE31B Digital Encoder Demo</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+            color: white;
+            min-height: 100vh;
+            padding: 15px;
+            overflow-x: hidden;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 25px;
+        }
+
+		.nxp-logo {
+			width: 320px;
+			height: auto;
+			margin-bottom: 15px;
+		}
+
+        .header h1 {
+            font-size: 2.2em;
+            margin-bottom: 8px;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+        }
+
+        .status-indicator {
+            display: inline-block;
+            width: 10px;
+            height: 10px;
+            background: #00ff88;
+            border-radius: 50%;
+            margin-right: 8px;
+            animation: pulse 2s infinite;
+        }
+
+        .status-indicator.disconnected {
+            background: #ff6b6b;
+        }
+
+        @keyframes pulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.5; }
+            100% { opacity: 1; }
+        }
+
+        .data-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 20px;
+            max-width: 1000px;
+            margin: 0 auto;
+        }
+
+        .data-card {
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            border-radius: 12px;
+            padding: 20px;
+            text-align: center;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            transition: transform 0.2s ease;
+        }
+
+        .data-card:hover {
+            transform: translateY(-3px);
+        }
+
+        .card-title {
+            font-size: 1.1em;
+            color: #87CEEB;
+            margin-bottom: 15px;
+            font-weight: 600;
+        }
+
+        .data-value {
+            font-size: 2.5em;
+            font-weight: bold;
+            margin: 15px 0;
+            text-shadow: 1px 1px 3px rgba(0,0,0,0.3);
+        }
+
+        .data-unit {
+            font-size: 0.9em;
+            opacity: 0.8;
+        }
+
+        .progress-container {
+            margin-top: 15px;
+        }
+
+        .progress-bar {
+            width: 100%;
+            height: 8px;
+            background: rgba(255, 255, 255, 0.2);
+            border-radius: 4px;
+            overflow: hidden;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #00ff88, #00ccff);
+            border-radius: 4px;
+            transition: width 0.3s ease;
+            width: 0%;
+        }
+
+        .progress-text {
+            font-size: 0.8em;
+            margin-top: 5px;
+            opacity: 0.7;
+        }
+
+        .angle-visual {
+            position: relative;
+            width: 150px;
+            height: 150px;
+            margin: 15px auto;
+            border: 2px solid rgba(255, 255, 255, 0.3);
+            border-radius: 50%;
+        }
+
+        .angle-pointer {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 2px;
+            height: 60px;
+            background: #ff6b6b;
+            transform-origin: bottom center;
+            transform: translate(-50%, -100%) rotate(0deg);
+            transition: transform 0.2s ease;
+            border-radius: 1px;
+        }
+
+        .angle-center {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 8px;
+            height: 8px;
+            background: #ff6b6b;
+            border-radius: 50%;
+            transform: translate(-50%, -50%);
+        }
+
+        .angle-markers {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+        }
+
+        .angle-marker {
+            position: absolute;
+            width: 1px;
+            height: 10px;
+            background: rgba(255, 255, 255, 0.4);
+            top: 0;
+            left: 50%;
+            transform-origin: 50% 75px;
+        }
+
+        .footer {
+            text-align: center;
+            margin-top: 25px;
+            font-size: 0.85em;
+            opacity: 0.7;
+        }
+
+        .error-message {
+            color: #ff6b6b;
+            font-size: 0.9em;
+            margin-top: 10px;
+        }
+    </style>
+</head>
+<body>
+	<div class="header">
+		<img class="nxp-logo" src="nxp-logo.png" alt="NXP Logo">
+		<h1><span class="status-indicator" id="status-led"></span>Digital Encoder Real-time Monitor</h1>
+	</div>
+
+    <div class="data-grid">
+        <!-- Multi-turn Counter -->
+		<div class="data-card">
+			<div class="card-title">Multi-turn Counter</div>
+			<div class="data-value" id="multiturn-value">--</div>
+			<div class="data-unit">Turns</div>
+			<div class="error-message" id="multiturn-error"></div>
+		</div>
+
+        <!-- Angle Display -->
+        <div class="data-card">
+            <div class="card-title">Current Angle</div>
+            <div class="angle-visual">
+                <div class="angle-markers">
+                    <div class="angle-marker" style="transform: translateX(-50%) rotate(0deg);"></div>
+                    <div class="angle-marker" style="transform: translateX(-50%) rotate(90deg);"></div>
+                    <div class="angle-marker" style="transform: translateX(-50%) rotate(180deg);"></div>
+                    <div class="angle-marker" style="transform: translateX(-50%) rotate(270deg);"></div>
+                </div>
+                <div class="angle-pointer" id="angle-pointer"></div>
+                <div class="angle-center"></div>
+            </div>
+            <div class="data-value" id="degrees-value">--°</div>
+            <div class="data-unit">Degrees (0-360)</div>
+            <div class="error-message" id="degrees-error"></div>
+        </div>
+
+        <!-- Temperature Data -->
+        <div class="data-card">
+            <div class="card-title">Temperature</div>
+            <div class="data-value" id="extra-value">--</div>
+            <div class="data-unit">Celsius (°C)</div>
+            <div class="error-message" id="extra-error"></div>
+        </div>
+    </div>
+
+    <div class="footer">
+        <div>FRDM-MCXE31B Digital Encoder Demo | Last Update: <span id="update-time">--</span></div>
+        <div>Connection Status: <span id="connection-status">Disconnected</span></div>
+    </div>
+
+    <!-- Include necessary libraries -->
+    <script src="simple-jsonrpc-js.js"></script>
+    <script src="freemaster-client.js"></script>
+    
+    <script>
+        // Global variables
+        let pcm = null;
+        let isConnected = false;
+        let updateInterval = null;
+
+        // Initialize PCM connection
+        function initializePCM() {
+            try {
+                // Use default address or get from FreeMASTER
+                let rpcsAddr = "localhost:41000";
+                if (typeof FreeMASTER !== "undefined" && FreeMASTER.rpcs_addr) {
+                    rpcsAddr = FreeMASTER.rpcs_addr;
+                }
+
+                pcm = new PCM(rpcsAddr, onSocketConnected, onSocketClose, onSocketError);
+                pcm.OnServerError = onServerError;
+                
+                updateConnectionStatus("Connecting...");
+                
+            } catch (error) {
+                console.error("PCM initialization failed:", error);
+                updateConnectionStatus("Initialization Failed");
+            }
+        }
+
+        // WebSocket connection successful
+        function onSocketConnected() {
+            isConnected = true;
+            console.log("Connected to FreeMaster");
+            updateConnectionStatus("Connected");
+            document.getElementById('status-led').classList.remove('disconnected');
+            
+            // Enable events
+            pcm.EnableEvents(true);
+            
+            // Start data update
+            startDataUpdate();
+        }
+
+        // WebSocket connection closed
+        function onSocketClose() {
+            isConnected = false;
+            console.warn("Connection closed");
+            updateConnectionStatus("Connection Closed");
+            document.getElementById('status-led').classList.add('disconnected');
+            stopDataUpdate();
+        }
+
+        // WebSocket error
+        function onSocketError(err) {
+            isConnected = false;
+            console.error("Socket error:", err);
+            updateConnectionStatus("Connection Error");
+            document.getElementById('status-led').classList.add('disconnected');
+        }
+
+        // Server error
+        function onServerError(err) {
+            console.error("Server error:", err);
+        }
+
+        // Update connection status display
+        function updateConnectionStatus(status) {
+            document.getElementById('connection-status').textContent = status;
+        }
+
+        // Read variable value
+        async function readVariable(varName, varType = 'float', size = 4) {
+            if (!pcm || !isConnected) {
+                throw new Error("PCM not connected");
+            }
+
+            try {
+                let response;
+                switch (varType) {
+                    case 'int':
+                        response = await pcm.ReadIntVariable(varName, size);
+                        break;
+                    case 'uint':
+                        response = await pcm.ReadUIntVariable(varName, size);
+                        break;
+                    case 'float':
+                    default:
+                        response = await pcm.ReadFloatVariable(varName, size);
+                        break;
+                }
+                return response.data;
+            } catch (error) {
+                console.error(`Failed to read variable ${varName}:`, error);
+                throw error;
+            }
+        }
+
+        // Add global variable to track current angle
+        let currentAngle = 0;
+
+        // Calculate shortest rotation path
+        function getShortestRotation(from, to) {
+            let diff = to - from;
+            
+            // Normalize angle difference to -180 to 180 degree range
+            while (diff > 180) diff -= 360;
+            while (diff < -180) diff += 360;
+            
+            return from + diff;
+        }
+
+        async function updateDisplay() {
+            if (!isConnected) return;
+
+            try {
+                // Read multi-turn counter (assuming uint type)
+				try {
+					const multiturn = await readVariable('encoder_result.turns', 'int', 4);
+					document.getElementById('multiturn-value').textContent = multiturn;
+					document.getElementById('multiturn-error').textContent = '';
+				} catch (error) {
+					document.getElementById('multiturn-error').textContent = 'Read failed: ' + error.message;
+				}
+
+                // Read angle value (float type)
+                try {
+                    const degrees = await readVariable('encoder_result.angle_deg', 'float', 4);
+                    document.getElementById('degrees-value').textContent = degrees.toPrecision(8) + '°';
+                    
+                    // Calculate shortest path angle
+                    const targetAngle = getShortestRotation(currentAngle, degrees);
+                    currentAngle = targetAngle;
+                    
+                    // Apply smooth rotation
+                    document.getElementById('angle-pointer').style.transform = 
+                        `translate(-50%, -100%) rotate(${targetAngle}deg)`;
+                    document.getElementById('degrees-error').textContent = '';
+                } catch (error) {
+                    document.getElementById('degrees-error').textContent = 'Read failed: ' + error.message;
+                }
+
+                try {
+                    const temperature = await readVariable('adc_result.temperature', 'float', 4);
+                    document.getElementById('extra-value').textContent = temperature.toFixed(1) + '°C';
+                    document.getElementById('extra-error').textContent = '';
+                } catch (error) {
+                    document.getElementById('extra-error').textContent = 'Read failed: ' + error.message;
+                }
+        
+                // Update timestamp
+                document.getElementById('update-time').textContent = 
+                    new Date().toLocaleTimeString();
+                    
+            } catch (error) {
+                console.error('Data update error:', error);
+            }
+        }
+
+        // Start data update
+        function startDataUpdate() {
+            if (updateInterval) {
+                clearInterval(updateInterval);
+            }
+            updateInterval = setInterval(updateDisplay, 100); // Update every 200ms
+            updateDisplay(); // Update immediately once
+        }
+
+        // Stop data update
+        function stopDataUpdate() {
+            if (updateInterval) {
+                clearInterval(updateInterval);
+                updateInterval = null;
+            }
+        }
+
+        // Initialize after page load
+        document.addEventListener('DOMContentLoaded', function() {
+            console.log("Page loaded, initializing PCM...");
+            initializePCM();
+        });
+
+        // Cleanup on page unload
+        window.addEventListener('beforeunload', function() {
+            if (pcm) {
+                pcm.Shutdown();
+            }
+        });
+    </script>
+</body>
+</html>

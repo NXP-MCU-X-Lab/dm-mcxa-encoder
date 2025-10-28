@@ -69,3 +69,5 @@ build
 *.vscode
 RTE
 DebugConfig
+*.pptx
+~*

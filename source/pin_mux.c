@@ -82,6 +82,11 @@ void BOARD_InitDEBUG_UARTPins(void)
     RESET_ReleasePeripheralReset(kPORT2_RST_SHIFT_RSTn);
     RESET_ReleasePeripheralReset(kPORT3_RST_SHIFT_RSTn);
     
+    RESET_ReleasePeripheralReset(kGPIO0_RST_SHIFT_RSTn);
+    RESET_ReleasePeripheralReset(kGPIO1_RST_SHIFT_RSTn);
+    RESET_ReleasePeripheralReset(kGPIO2_RST_SHIFT_RSTn);
+    RESET_ReleasePeripheralReset(kGPIO3_RST_SHIFT_RSTn);
+    
     RESET_ReleasePeripheralReset(kADC0_RST_SHIFT_RSTn);
     RESET_ReleasePeripheralReset(kADC1_RST_SHIFT_RSTn);
     
@@ -173,9 +178,36 @@ void BOARD_InitDEBUG_UARTPins(void)
     PORT_SetPinConfig(PORT2, 17, &port2_12_13_15_16_17_19_config);
     PORT_SetPinConfig(PORT2, 19, &port2_12_13_15_16_17_19_config);
                                                     
-                                                    
+                                              
+    /* ASR i2c inteface */
     PORT_SetPinConfig(PORT3, 27, &port2_12_13_15_16_17_19_config);
     PORT_SetPinConfig(PORT3, 28, &port2_12_13_15_16_17_19_config);
+                                                    
+                                                    
+                                                    
+    const port_pin_config_t port1_8_config = {/* Internal pull-up resistor is enabled */
+                                                    .pullSelect = kPORT_PullUp,
+                                                    /* Low internal pull resistor value is selected. */
+                                                    .pullValueSelect = kPORT_LowPullResistor,
+                                                    /* Fast slew rate is configured */
+                                                    .slewRate = kPORT_FastSlewRate,
+                                                    /* Passive input filter is disabled */
+                                                    .passiveFilterEnable = kPORT_PassiveFilterDisable,
+                                                    /* Open drain output is disabled */
+                                                    .openDrainEnable = kPORT_OpenDrainDisable,
+                                                    /* Low drive strength is configured */
+                                                    .driveStrength = kPORT_LowDriveStrength,
+                                                    /* Normal drive strength is configured */
+                                                    .driveStrength1 = kPORT_NormalDriveStrength,
+                                                    .mux = kPORT_MuxAlt0,
+                                                    /* Digital input enabled */
+                                                    .inputBuffer = kPORT_InputBufferEnable,
+                                                    /* Digital input is not inverted */
+                                                    .invertInput = kPORT_InputNormal,
+                                                    /* Pin Control Register fields [15:0] are not locked */
+                                                    .lockRegister = kPORT_UnlockRegister};
+    PORT_SetPinConfig(PORT1, 8, &port1_8_config);
+    PORT_SetPinConfig(PORT1, 9, &port1_8_config);
 }
 
 /* clang-format off */
