@@ -1,5 +1,6 @@
 // app_encoder.c - Optimized version
 #include "app_encoder.h"
+#include "mau_atan2.h"
 #include <math.h>
 #include <stdio.h>
 
@@ -67,6 +68,14 @@ static inline float angle_diff_deg(float a, float b)
 // ========== Public Interface ==========
 void encoder_init(void)
 {
+    static int s_mau_ready = 0;
+    if (!s_mau_ready) {
+        mau_config_t cfg;
+        MAU_GetDefaultConfig(&cfg);
+        MAU_Init(MAU0, &cfg);
+        s_mau_ready = 1;
+    }
+
     state.initialized = 0;
     state.prev_elec_angle = 0.0f;
     state.accum_elec_deg = 0.0f;
@@ -111,7 +120,9 @@ void encoder_apply_calibration(const encoder_calibration_t *cal)
         return;
     }
 
-    // 先复制并校验输入的校准矩阵；若检测到非有限值，退回到单位矩阵而非零矩阵
+    // Copy and validate the incoming calibration transform; if any non-finite
+    // value is detected, fall back to identity matrix instead of zero to avoid
+    // degeneracy.
     encoder_calibration_t tmp = *cal;
     int invalid = 0;
     for (int r = 0; r < 2; r++) {
@@ -122,7 +133,7 @@ void encoder_apply_calibration(const encoder_calibration_t *cal)
         }
     }
     if (invalid) {
-        // 单位矩阵回退更安全，避免变换退化
+        // Fallback to identity is safer and prevents transform degeneracy
         tmp.transform[0][0] = 1.0f; tmp.transform[0][1] = 0.0f;
         tmp.transform[1][0] = 0.0f; tmp.transform[1][1] = 1.0f;
     }
@@ -169,7 +180,7 @@ void encoder_process(uint16_t adc_sin, uint16_t adc_cos, encoder_result_t *resul
     float cos_t = s_calibration.transform[1][0] * sin_centered +
                   s_calibration.transform[1][1] * cos_centered;
     
-    // 计算幅值用于质量判定与径向归一化
+    // Compute magnitude for quality gating and radial normalization
     float mag_raw = sqrtf(sin_t * sin_t + cos_t * cos_t);
     
     // ========== Step 2: Signal Quality Check ==========
@@ -178,7 +189,8 @@ void encoder_process(uint16_t adc_sin, uint16_t adc_cos, encoder_result_t *resul
     // Fill diagnostic information
     result->sin_raw = adc_sin;
     result->cos_raw = adc_cos;
-    // 在弱信号之外，使用径向归一化得到单位向量（避免分量钳制失真）
+    // For sufficiently strong signal, apply radial normalization to unit vector
+    // (avoids distortion that component clamping would introduce)
     float sin_norm = sin_t;
     float cos_norm = cos_t;
     if (mag_raw >= ENCODER_MIN_MAG_THRESHOLD) {
@@ -191,7 +203,7 @@ void encoder_process(uint16_t adc_sin, uint16_t adc_cos, encoder_result_t *resul
     
     // Signal too weak: freeze output
     if (mag < ENCODER_MIN_MAG_THRESHOLD) {
-        // 保持电角与机械角，避免弱信号时语义突变
+        // Hold electrical and mechanical angles to avoid semantic jumps under weak signal
         result->elec_angle_deg = state.prev_elec_angle;
         result->angle_deg = state.prev_output_angle;
         result->turns = state.turn_count;
@@ -203,7 +215,8 @@ void encoder_process(uint16_t adc_sin, uint16_t adc_cos, encoder_result_t *resul
     }
     
     // ========== Step 3: Electrical Angle Calculation ==========
-    float elec_angle_deg = atan2f(sin_norm, cos_norm) * RAD_TO_DEG;
+    /* Use MAU hardware-accelerated atan2 (float precision) */
+    float elec_angle_deg = mau_atan2f(sin_norm, cos_norm) * RAD_TO_DEG;
     if (elec_angle_deg < 0.0f) elec_angle_deg += 360.0f;
     
     result->elec_angle_deg = elec_angle_deg;

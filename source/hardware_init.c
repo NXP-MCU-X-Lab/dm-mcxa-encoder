@@ -29,6 +29,18 @@
 #define DEMO_OPAMP_BIAS_CURRENT   kOPAMP_ChangeToQuarter
 
 
+void DWT_Init(void)
+{
+    CoreDebug->DEMCR |= CoreDebug_DEMCR_TRCENA_Msk;
+    DWT->CYCCNT = 0;
+    DWT->CTRL |= DWT_CTRL_CYCCNTENA_Msk;
+}
+
+uint32_t DWT_GetCycles(void)
+{
+    return DWT->CYCCNT;
+}
+
 /*! @brief Initialize test pin P1_8 for ADC timing measurement */
 void TEST_PIN_Init(void)
 {
@@ -69,6 +81,7 @@ void BOARD_InitHardware(void)
     BOARD_InitDebugConsole();
     BOARD_InitOPAMP();
     TEST_PIN_Init();
+    DWT_Init();
 }
 
 /*! @brief Set test pin to high level */

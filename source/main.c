@@ -11,6 +11,8 @@
 #include <stdint.h>
 #include "app_sampler.h"
 #include "hardware_init.h"
+#include "mau_atan2_test.h"
+
 
 #define SAMPLE_FRQ          (10*1000)
 
@@ -216,6 +218,7 @@ static void perform_encoder_calibration(void)
 }
 
 
+
 int main(void)
 {
     int ch;
@@ -239,6 +242,8 @@ int main(void)
     freq = CLOCK_GetFreq(kCLOCK_FroHfDiv);
     printf("FRO_HF_DIV:    %u Hz (%u MHz)\r\n", freq, freq / 1000000U);
     
+    MAU_Atan2PerformanceTest();
+            
     /* ========== Mode Selection with 3s Timeout ========== */
     printf("\r\n=== Select ADC Sampling Mode (3s timeout) ===\r\n");
     printf("1: Normal Mode (OPAMP outputs only, 2ch)\r\n");
@@ -283,7 +288,6 @@ int main(void)
 //    nl_t quat[4] = {1, 0, 0, 0};
 //    nl_t mag[3];
     
-
     while (1) {
         if(timer_evt == 1) {
             timer_evt = 0;
