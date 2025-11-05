@@ -36,9 +36,18 @@ typedef struct {
     int32_t turn_count;         // Mechanical turn count
     float prev_output_angle;    // Previous output angle (for filtering and gating)
     float prev_delta;           // Previous delta for velocity estimate
+    float omega_est;            // Estimated mechanical angular speed (deg/s)
+    float published_angle_deg;  // Last published (deadband-filtered) angle
+    uint16_t published_counts;  // Last published quantized counts
 } encoder_state_t;
 
 static encoder_state_t state = {0};
+
+/* Industrial support: ID/Status/Alarm and ABM offset */
+static uint8_t s_encoder_id = 0x17;      /* default ENID */
+static uint8_t s_status     = 0x00;      /* SF (stub; integrate diagnostics) */
+static uint8_t s_alarm      = 0x00;      /* ALMC (stub; integrate diagnostics) */
+static int32_t s_abm_offset = 0;         /* ABM tare offset (turns) */
 
 // ========== Inline Utility Functions ==========
 static inline float normalize_deg(float a)
@@ -82,8 +91,13 @@ void encoder_init(void)
     state.turn_count = 0;
     state.prev_output_angle = 0.0f;
     state.prev_delta = 0.0f;
+    state.omega_est = 0.0f;
+    state.published_angle_deg = 0.0f;
+    state.published_counts = 0u;
     zero_offset_deg = 0.0f;
     dir_sign = +1;
+    /* Optional: keep ABM offset across init; set to 0 for deterministic startup */
+    s_abm_offset = 0;
 }
 
 void encoder_calibrate(uint16_t sin_min, uint16_t sin_max, 
@@ -247,37 +261,85 @@ void encoder_process(uint16_t adc_sin, uint16_t adc_cos, encoder_result_t *resul
     mech_angle -= zero_offset_deg;
     mech_angle = normalize_deg(mech_angle);
     
-    // ========== Step 7: Velocity-Adaptive Jitter Suppression ==========
-    #define BASE_DEADBAND     0.03f   // Base deadband for static
-    #define MAX_DEADBAND      0.04f   // Max deadband for low speed
-    #define FILTER_ALPHA      0.1f    
-    #define VELOCITY_SCALE    0.1f     // Velocity sensitivity
+    // ========== Step 7: Simple Alpha-Beta Filter for Robust Angle Tracking ==========
+    // Prediction
+    float theta_pred = normalize_deg(state.prev_output_angle + state.omega_est * ENCODER_SAMPLE_PERIOD_S);
+    // Innovation (wrapped)
+    float e_raw = angle_diff_deg(mech_angle, theta_pred);
+    // Clamp spikes
+    float e = clamp_f(e_raw, -ENCODER_SPIKE_THRESHOLD_DEG, ENCODER_SPIKE_THRESHOLD_DEG);
+    // Update omega with rate limiting
+    float omega_new = state.omega_est + (ENCODER_AB_BETA / ENCODER_SAMPLE_PERIOD_S) * e;
+    omega_new = clamp_f(omega_new, -ENCODER_OMEGA_MAX_DPS, ENCODER_OMEGA_MAX_DPS);
+    state.omega_est = omega_new;
+    // Update filtered angle
+    float theta_f = normalize_deg(theta_pred + ENCODER_AB_ALPHA * e);
+    state.prev_delta = e; // keep a lightweight record of last innovation
+    state.prev_output_angle = theta_f;
 
-    float delta = angle_diff_deg(mech_angle, state.prev_output_angle);
-    float abs_delta = fabsf(delta);
-
-    // Estimate velocity (simple derivative)
-    float velocity = fabsf(delta - state.prev_delta);
-    state.prev_delta = delta;
-
-    // Adaptive deadband: smaller when moving fast
-    float adaptive_deadband = BASE_DEADBAND + (MAX_DEADBAND - BASE_DEADBAND) * expf(-velocity / VELOCITY_SCALE);
-
-    if (abs_delta < adaptive_deadband) {
-        // Inside adaptive deadband: hold
-        mech_angle = state.prev_output_angle;
-    } else {
-        // Outside deadband: filter and update
-        mech_angle = normalize_deg(state.prev_output_angle + FILTER_ALPHA * delta);
-        state.prev_output_angle = mech_angle;
-    }
-    
-    // ========== Step 8: Output ==========
-    result->angle_deg = mech_angle;
-    result->turns = state.turn_count;
-    
-    // Quantize to N-bit counts
+    // ========== Step 8: Output with simple deadband freeze (counts space) ==========
     const uint32_t full_scale = 1u << ENCODER_RESOLUTION_BITS;
-    uint32_t counts = (uint32_t)(mech_angle * (float)full_scale / 360.0f + 0.5f);
-    result->angle_counts = counts & (full_scale - 1);
+    uint32_t desired_counts = (uint32_t)(state.prev_output_angle * (float)full_scale / 360.0f + 0.5f) & (full_scale - 1);
+    int diff = (int)desired_counts - (int)state.published_counts;
+    // Wrap difference to shortest path on ring
+    if (diff > (int)(full_scale/2)) diff -= (int)full_scale;
+    else if (diff < -(int)(full_scale/2)) diff += (int)full_scale;
+
+    uint16_t final_counts;
+    float final_angle_deg;
+    if ((unsigned)abs(diff) <= ENCODER_OUTPUT_DEADBAND_COUNTS) {
+        // Inside deadband: hold last published values
+        final_counts = state.published_counts;
+        final_angle_deg = state.published_angle_deg;
+    } else {
+        // Outside deadband: publish new filtered angle
+        final_counts = (uint16_t)desired_counts;
+        final_angle_deg = state.prev_output_angle;
+        state.published_counts = final_counts;
+        state.published_angle_deg = final_angle_deg;
+    }
+
+    result->angle_deg = final_angle_deg;
+    result->turns = state.turn_count;
+    result->angle_counts = final_counts;
+}
+
+/* ===== Industrial support helpers ===== */
+uint16_t encoder_get_abs_counts(void)
+{
+    return state.published_counts;
+}
+
+uint32_t encoder_get_abm_counts24(void)
+{
+    /* Wrap to 24-bit */
+    int32_t abm = state.turn_count + s_abm_offset;
+    uint32_t u = (uint32_t)abm & 0xFFFFFFU;
+    return u;
+}
+
+void encoder_reset_abm(void)
+{
+    /* Tare ABM to zero at current turn count */
+    s_abm_offset = -state.turn_count;
+}
+
+void encoder_set_id(uint8_t id)
+{
+    s_encoder_id = id;
+}
+
+uint8_t encoder_get_id(void)
+{
+    return s_encoder_id;
+}
+
+uint8_t encoder_get_status(void)
+{
+    return s_status;
+}
+
+uint8_t encoder_get_alarm(void)
+{
+    return s_alarm;
 }

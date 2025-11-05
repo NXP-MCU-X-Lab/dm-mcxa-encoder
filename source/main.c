@@ -12,6 +12,8 @@
 #include "app_sampler.h"
 #include "hardware_init.h"
 #include "mau_atan2_test.h"
+#include "app_uart_dma.h"
+#include "app_tformat.h"
 
 
 #define SAMPLE_FRQ          (10*1000)
@@ -56,6 +58,64 @@ static int getchar_timeout(uint32_t timeout_ms)
         }
     }
     return -1;  // Timeout
+}
+
+static void print_system_clocks(void)
+{
+    uint32_t freq;
+    printf("=== System Clocks ===\r\n");
+    freq = CLOCK_GetFreq(kCLOCK_CoreSysClk);
+    printf("Core Clock:    %u Hz (%u MHz)\r\n", freq, freq / 1000000U);
+    freq = CLOCK_GetFreq(kCLOCK_FroHf);
+    printf("FRO_HF:        %u Hz (%u MHz)\r\n", freq, freq / 1000000U);
+    freq = CLOCK_GetFreq(kCLOCK_FroHfDiv);
+    printf("FRO_HF_DIV:    %u Hz (%u MHz)\r\n", freq, freq / 1000000U);
+}
+
+static void start_sampling_default(void)
+{
+    sampler_init(SAMPLE_FRQ);
+    sampler_start();
+    encoder_set_direction(-1);
+}
+
+static void stream_encoder_loop(void)
+{
+    while (1)
+    {
+        if (timer_evt == 1)
+        {
+            timer_evt = 0;
+            sampler_copy_latest(&encoder_result);
+            sampler_copy_latest_raw(&adc_result);
+            printf("Angle: %7.2f deg | Counts: %6ld | Turns: %4d | Sin: %5u | Cos: %5u\r\n",
+                   encoder_result.angle_deg,
+                   (long)encoder_result.angle_counts,
+                   encoder_result.turns,
+                   adc_result.opamp0_out,
+                   adc_result.opamp1_out);
+        }
+    }
+}
+
+static void run_uart_dma_demo(void)
+{
+    uart_dma_demo_init();
+    uart_dma_demo_run();
+    while (1)
+    {
+    }
+}
+
+static void run_tformat_slave_demo(void)
+{
+    tformat_init();
+    adc_init(ADC_MODE_OUTPUT_ONLY);
+    start_sampling_default();
+    tformat_slave_loop();
+    while (1)
+    {
+    }
 }
 
 static void perform_encoder_calibration(void)
@@ -222,7 +282,6 @@ static void perform_encoder_calibration(void)
 int main(void)
 {
     int ch;
-    uint32_t freq;
     adc_sampling_mode_t adc_mode;
 
     /* Init board hardware */
@@ -232,23 +291,17 @@ int main(void)
 
     SysTick_Init();
 
-    printf("=== System Clocks ===\r\n");
-    freq = CLOCK_GetFreq(kCLOCK_CoreSysClk);
-    printf("Core Clock:    %u Hz (%u MHz)\r\n", freq, freq / 1000000U);
-
-    freq = CLOCK_GetFreq(kCLOCK_FroHf);
-    printf("FRO_HF:        %u Hz (%u MHz)\r\n", freq, freq / 1000000U);
-
-    freq = CLOCK_GetFreq(kCLOCK_FroHfDiv);
-    printf("FRO_HF_DIV:    %u Hz (%u MHz)\r\n", freq, freq / 1000000U);
+    print_system_clocks();
     
     MAU_Atan2PerformanceTest();
             
     /* ========== Mode Selection with 3s Timeout ========== */
-    printf("\r\n=== Select ADC Sampling Mode (3s timeout) ===\r\n");
+    printf("\r\n=== Select Mode (3s timeout) ===\r\n");
     printf("1: Normal Mode (OPAMP outputs only, 2ch)\r\n");
     printf("2: Debug Mode (All 6 channels: INP, INN, OUT)\r\n");
     printf("3: Auto Calibration (OPAMP outputs only, 2ch)\r\n");
+    printf("4: UART DMA Demo (TX/RX)\r\n");
+    printf("5: Tamagawa T-Format Demo (ABS + Temp)\r\n");
     printf("Select: ");
     
     ch = getchar_timeout(3000);  // 3 second timeout
@@ -261,7 +314,16 @@ int main(void)
         printf("%c\r\n", (char)ch);
     }
     
-    /* Determine ADC mode */
+    /* Determine ADC mode or run demos */
+    if (ch == '4')
+    {
+        run_uart_dma_demo();
+    }
+    else if (ch == '5')
+    {
+        run_tformat_slave_demo();
+    }
+    
     if (ch == '2') {
         adc_mode = ADC_MODE_FULL_DEBUG;
     } else if (ch == '3') {
@@ -278,42 +340,8 @@ int main(void)
         ch = '1';  // Switch to normal mode after calibration
     }
     
-    sampler_init(SAMPLE_FRQ);
-    sampler_start();
-    encoder_set_direction(-1);
-//   
-//    uint8_t tx_buf[128];
-//    nl_t acc[3] = {0, 0, 0};
-//    nl_t gyr[3] = {0, 0, 0};
-//    nl_t quat[4] = {1, 0, 0, 0};
-//    nl_t mag[3];
-    
-    while (1) {
-        if(timer_evt == 1) {
-            timer_evt = 0;
-           
-            sampler_copy_latest(&encoder_result);
-            sampler_copy_latest_raw(&adc_result);
-//            mag[0] = adc_result.opamp1_inn_voltage;
-//            mag[1] = adc_result.opamp1_inp_voltage;
-//            mag[2] = adc_result.opamp1_out_voltage;
-//            
-//            int frame_len = bin_hi91data(
-//                tx_buf, 0, 0, acc, gyr, quat, mag, 0, 0, encoder_result.angle_deg, encoder_result.angle_counts, encoder_result.turns
-//            );
-//            
-//            for (int i = 0; i < frame_len; i++) {
-//                PUTCHAR(tx_buf[i]);
-//            }
-            
-        printf("Angle: %7.2f deg | Counts: %6ld | Turns: %4d | Sin: %5u | Cos: %5u\r\n",
-               encoder_result.angle_deg,
-               (long)encoder_result.angle_counts,
-               encoder_result.turns,
-               adc_result.opamp0_out,
-               adc_result.opamp1_out);
-        }
-    }
+    start_sampling_default();
+    stream_encoder_loop();
     
 }
 

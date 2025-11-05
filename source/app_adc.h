@@ -45,7 +45,7 @@
 
 /* Hardware Averaging for Signal Channels */
 #define ADC_HW_AVG_SIGNAL       kLPADC_HardwareAverageCount16
-#define ADC_SAMPLE_TIME_SIGNAL  kLPADC_SampleTimeADCK3
+#define ADC_SAMPLE_TIME_SIGNAL  kLPADC_SampleTimeADCK5
 #define ADC_CLK_DIV             3
 
 /* Temperature Sensor Configuration */

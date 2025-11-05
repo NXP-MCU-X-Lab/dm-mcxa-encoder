@@ -20,6 +20,22 @@
 // Below this magnitude, output is frozen and radial normalization is skipped.
 #define ENCODER_MIN_MAG_THRESHOLD 0.6f
 
+// Sampling period (seconds) of encoder_process calls (adjust to your system)
+#define ENCODER_SAMPLE_PERIOD_S 0.0001f
+
+// Simple alpha-beta filter parameters for angle tracking
+#define ENCODER_AB_ALPHA 0.05f
+#define ENCODER_AB_BETA  0.001f
+
+// Max allowed mechanical angular speed for rate limiting (deg/s)
+#define ENCODER_OMEGA_MAX_DPS 7200.0f
+
+// Spike clamp threshold on angle innovation (deg)
+#define ENCODER_SPIKE_THRESHOLD_DEG 20.0f
+
+// Output deadband in counts (N-bit resolution); small changes are held
+#define ENCODER_OUTPUT_DEADBAND_COUNTS 2
+
 // ========== Data Structures ==========
 typedef struct {
     // Raw ADC values
@@ -106,6 +122,22 @@ void encoder_set_direction(int8_t dir);
  *       for stable adaptive filtering (e.g., 1 kHz).
  */
 void encoder_process(uint16_t adc_sin, uint16_t adc_cos, encoder_result_t *result);
+
+/*
+ * Industrial support helpers
+ * - ABS: single-turn counts (N-bit, per ENCODER_RESOLUTION_BITS)
+ * - ABM: multi-turn 24-bit counter (wraps at 2^24), with reset/tare support
+ * - ENID: encoder ID (1 byte)
+ * - SF/ALMC: status/alarm bytes (stubs; integrate with product diagnostics as needed)
+ */
+uint16_t encoder_get_abs_counts(void);
+uint32_t encoder_get_abm_counts24(void);
+void     encoder_reset_abm(void);
+
+void     encoder_set_id(uint8_t id);
+uint8_t  encoder_get_id(void);
+uint8_t  encoder_get_status(void);
+uint8_t  encoder_get_alarm(void);
 
 #endif // APP_ENCODER_H
 

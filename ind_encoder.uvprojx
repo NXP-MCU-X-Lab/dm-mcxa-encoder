@@ -691,19 +691,9 @@
               <FilePath>drivers/fsl_clock.c</FilePath>
             </File>
             <File>
-              <FileName>fsl_clock.h</FileName>
-              <FileType>5</FileType>
-              <FilePath>drivers/fsl_clock.h</FilePath>
-            </File>
-            <File>
               <FileName>fsl_common.c</FileName>
               <FileType>1</FileType>
               <FilePath>drivers/fsl_common.c</FilePath>
-            </File>
-            <File>
-              <FileName>fsl_common.h</FileName>
-              <FileType>5</FileType>
-              <FilePath>drivers/fsl_common.h</FilePath>
             </File>
             <File>
               <FileName>fsl_common_arm.c</FileName>
@@ -711,24 +701,9 @@
               <FilePath>drivers/fsl_common_arm.c</FilePath>
             </File>
             <File>
-              <FileName>fsl_common_arm.h</FileName>
-              <FileType>5</FileType>
-              <FilePath>drivers/fsl_common_arm.h</FilePath>
-            </File>
-            <File>
               <FileName>fsl_gpio.c</FileName>
               <FileType>1</FileType>
               <FilePath>drivers/fsl_gpio.c</FilePath>
-            </File>
-            <File>
-              <FileName>fsl_gpio.h</FileName>
-              <FileType>5</FileType>
-              <FilePath>drivers/fsl_gpio.h</FilePath>
-            </File>
-            <File>
-              <FileName>fsl_inputmux_connections.h</FileName>
-              <FileType>5</FileType>
-              <FilePath>drivers/fsl_inputmux_connections.h</FilePath>
             </File>
             <File>
               <FileName>fsl_lpuart.c</FileName>
@@ -736,34 +711,14 @@
               <FilePath>drivers/fsl_lpuart.c</FilePath>
             </File>
             <File>
-              <FileName>fsl_lpuart.h</FileName>
-              <FileType>5</FileType>
-              <FilePath>drivers/fsl_lpuart.h</FilePath>
-            </File>
-            <File>
-              <FileName>fsl_port.h</FileName>
-              <FileType>5</FileType>
-              <FilePath>drivers/fsl_port.h</FilePath>
-            </File>
-            <File>
               <FileName>fsl_reset.c</FileName>
               <FileType>1</FileType>
               <FilePath>drivers/fsl_reset.c</FilePath>
             </File>
             <File>
-              <FileName>fsl_reset.h</FileName>
-              <FileType>5</FileType>
-              <FilePath>drivers/fsl_reset.h</FilePath>
-            </File>
-            <File>
               <FileName>fsl_spc.c</FileName>
               <FileType>1</FileType>
               <FilePath>drivers/fsl_spc.c</FilePath>
-            </File>
-            <File>
-              <FileName>fsl_spc.h</FileName>
-              <FileType>5</FileType>
-              <FilePath>drivers/fsl_spc.h</FilePath>
             </File>
             <File>
               <FileName>fsl_inputmux.c</FileName>
@@ -789,6 +744,21 @@
               <FileName>fsl_mau.c</FileName>
               <FileType>1</FileType>
               <FilePath>.\drivers\fsl_mau.c</FilePath>
+            </File>
+            <File>
+              <FileName>fsl_edma.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>.\drivers\fsl_edma.c</FilePath>
+            </File>
+            <File>
+              <FileName>fsl_edma_soc.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>.\drivers\fsl_edma_soc.c</FilePath>
+            </File>
+            <File>
+              <FileName>fsl_lpuart_edma.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>.\drivers\fsl_lpuart_edma.c</FilePath>
             </File>
           </Files>
         </Group>
@@ -895,6 +865,16 @@
                   </Cads>
                 </FileArmAds>
               </FileOption>
+            </File>
+            <File>
+              <FileName>app_uart_dma.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>.\source\app_uart_dma.c</FilePath>
+            </File>
+            <File>
+              <FileName>app_tformat.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>.\source\app_tformat.c</FilePath>
             </File>
           </Files>
         </Group>
@@ -1034,224 +1014,6 @@
               <FileName>hipnuc_enc.c</FileName>
               <FileType>1</FileType>
               <FilePath>.\source\nl\rcv\hipnuc_enc.c</FilePath>
-            </File>
-          </Files>
-        </Group>
-        <Group>
-          <GroupName>freemaster</GroupName>
-          <GroupOption>
-            <CommonProperty>
-              <UseCPPCompiler>0</UseCPPCompiler>
-              <RVCTCodeConst>0</RVCTCodeConst>
-              <RVCTZI>0</RVCTZI>
-              <RVCTOtherData>0</RVCTOtherData>
-              <ModuleSelection>0</ModuleSelection>
-              <IncludeInBuild>0</IncludeInBuild>
-              <AlwaysBuild>2</AlwaysBuild>
-              <GenerateAssemblyFile>2</GenerateAssemblyFile>
-              <AssembleAssemblyFile>2</AssembleAssemblyFile>
-              <PublicsOnly>2</PublicsOnly>
-              <StopOnExitCode>11</StopOnExitCode>
-              <CustomArgument></CustomArgument>
-              <IncludeLibraryModules></IncludeLibraryModules>
-              <ComprImg>1</ComprImg>
-            </CommonProperty>
-            <GroupArmAds>
-              <Cads>
-                <interw>2</interw>
-                <Optim>0</Optim>
-                <oTime>2</oTime>
-                <SplitLS>2</SplitLS>
-                <OneElfS>2</OneElfS>
-                <Strict>2</Strict>
-                <EnumInt>2</EnumInt>
-                <PlainCh>2</PlainCh>
-                <Ropi>2</Ropi>
-                <Rwpi>2</Rwpi>
-                <wLevel>0</wLevel>
-                <uThumb>2</uThumb>
-                <uSurpInc>2</uSurpInc>
-                <uC99>2</uC99>
-                <uGnu>2</uGnu>
-                <useXO>2</useXO>
-                <v6Lang>0</v6Lang>
-                <v6LangP>0</v6LangP>
-                <vShortEn>2</vShortEn>
-                <vShortWch>2</vShortWch>
-                <v6Lto>2</v6Lto>
-                <v6WtE>2</v6WtE>
-                <v6Rtti>2</v6Rtti>
-                <VariousControls>
-                  <MiscControls></MiscControls>
-                  <Define></Define>
-                  <Undefine></Undefine>
-                  <IncludePath></IncludePath>
-                </VariousControls>
-              </Cads>
-              <Aads>
-                <interw>2</interw>
-                <Ropi>2</Ropi>
-                <Rwpi>2</Rwpi>
-                <thumb>2</thumb>
-                <SplitLS>2</SplitLS>
-                <SwStkChk>2</SwStkChk>
-                <NoWarn>2</NoWarn>
-                <uSurpInc>2</uSurpInc>
-                <useXO>2</useXO>
-                <ClangAsOpt>0</ClangAsOpt>
-                <VariousControls>
-                  <MiscControls></MiscControls>
-                  <Define></Define>
-                  <Undefine></Undefine>
-                  <IncludePath></IncludePath>
-                </VariousControls>
-              </Aads>
-            </GroupArmAds>
-          </GroupOption>
-          <Files>
-            <File>
-              <FileName>freemaster_appcmd.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>.\source\freemaster\src\common\freemaster_appcmd.c</FilePath>
-            </File>
-            <File>
-              <FileName>freemaster_can.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>.\source\freemaster\src\common\freemaster_can.c</FilePath>
-            </File>
-            <File>
-              <FileName>freemaster_net.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>.\source\freemaster\src\common\freemaster_net.c</FilePath>
-            </File>
-            <File>
-              <FileName>freemaster_pdbdm.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>.\source\freemaster\src\common\freemaster_pdbdm.c</FilePath>
-            </File>
-            <File>
-              <FileName>freemaster_pipes.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>.\source\freemaster\src\common\freemaster_pipes.c</FilePath>
-            </File>
-            <File>
-              <FileName>freemaster_protocol.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>.\source\freemaster\src\common\freemaster_protocol.c</FilePath>
-            </File>
-            <File>
-              <FileName>freemaster_rec.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>.\source\freemaster\src\common\freemaster_rec.c</FilePath>
-            </File>
-            <File>
-              <FileName>freemaster_scope.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>.\source\freemaster\src\common\freemaster_scope.c</FilePath>
-            </File>
-            <File>
-              <FileName>freemaster_serial.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>.\source\freemaster\src\common\freemaster_serial.c</FilePath>
-            </File>
-            <File>
-              <FileName>freemaster_sha.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>.\source\freemaster\src\common\freemaster_sha.c</FilePath>
-            </File>
-            <File>
-              <FileName>freemaster_tsa.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>.\source\freemaster\src\common\freemaster_tsa.c</FilePath>
-            </File>
-            <File>
-              <FileName>freemaster_ures.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>.\source\freemaster\src\common\freemaster_ures.c</FilePath>
-            </File>
-            <File>
-              <FileName>freemaster_utils.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>.\source\freemaster\src\common\freemaster_utils.c</FilePath>
-            </File>
-          </Files>
-        </Group>
-        <Group>
-          <GroupName>freemaster/drivers</GroupName>
-          <GroupOption>
-            <CommonProperty>
-              <UseCPPCompiler>0</UseCPPCompiler>
-              <RVCTCodeConst>0</RVCTCodeConst>
-              <RVCTZI>0</RVCTZI>
-              <RVCTOtherData>0</RVCTOtherData>
-              <ModuleSelection>0</ModuleSelection>
-              <IncludeInBuild>0</IncludeInBuild>
-              <AlwaysBuild>2</AlwaysBuild>
-              <GenerateAssemblyFile>2</GenerateAssemblyFile>
-              <AssembleAssemblyFile>2</AssembleAssemblyFile>
-              <PublicsOnly>2</PublicsOnly>
-              <StopOnExitCode>11</StopOnExitCode>
-              <CustomArgument></CustomArgument>
-              <IncludeLibraryModules></IncludeLibraryModules>
-              <ComprImg>1</ComprImg>
-            </CommonProperty>
-            <GroupArmAds>
-              <Cads>
-                <interw>2</interw>
-                <Optim>0</Optim>
-                <oTime>2</oTime>
-                <SplitLS>2</SplitLS>
-                <OneElfS>2</OneElfS>
-                <Strict>2</Strict>
-                <EnumInt>2</EnumInt>
-                <PlainCh>2</PlainCh>
-                <Ropi>2</Ropi>
-                <Rwpi>2</Rwpi>
-                <wLevel>0</wLevel>
-                <uThumb>2</uThumb>
-                <uSurpInc>2</uSurpInc>
-                <uC99>2</uC99>
-                <uGnu>2</uGnu>
-                <useXO>2</useXO>
-                <v6Lang>0</v6Lang>
-                <v6LangP>0</v6LangP>
-                <vShortEn>2</vShortEn>
-                <vShortWch>2</vShortWch>
-                <v6Lto>2</v6Lto>
-                <v6WtE>2</v6WtE>
-                <v6Rtti>2</v6Rtti>
-                <VariousControls>
-                  <MiscControls></MiscControls>
-                  <Define></Define>
-                  <Undefine></Undefine>
-                  <IncludePath></IncludePath>
-                </VariousControls>
-              </Cads>
-              <Aads>
-                <interw>2</interw>
-                <Ropi>2</Ropi>
-                <Rwpi>2</Rwpi>
-                <thumb>2</thumb>
-                <SplitLS>2</SplitLS>
-                <SwStkChk>2</SwStkChk>
-                <NoWarn>2</NoWarn>
-                <uSurpInc>2</uSurpInc>
-                <useXO>2</useXO>
-                <ClangAsOpt>0</ClangAsOpt>
-                <VariousControls>
-                  <MiscControls></MiscControls>
-                  <Define></Define>
-                  <Undefine></Undefine>
-                  <IncludePath></IncludePath>
-                </VariousControls>
-              </Aads>
-            </GroupArmAds>
-          </GroupOption>
-          <Files>
-            <File>
-              <FileName>freemaster_serial_lpuart.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>.\source\freemaster\src\drivers\mcuxsdk\serial\freemaster_serial_lpuart.c</FilePath>
             </File>
           </Files>
         </Group>

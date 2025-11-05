@@ -18,8 +18,7 @@
 
 /*! @brief The UART to use for debug messages. */
 #define BOARD_DEBUG_UART_TYPE     kSerialPort_Uart
-//#define BOARD_DEBUG_UART_BAUDRATE 2500000
-#define BOARD_DEBUG_UART_BAUDRATE 2000000
+#define BOARD_DEBUG_UART_BAUDRATE 115200
 
 
 #define BOARD_DEBUG_UART_BASEADDR   (uint32_t) LPUART2
