@@ -8,6 +8,11 @@
 #ifndef _APP_ADC_H_
 #define _APP_ADC_H_
 
+/* ADC interface for inductive encoder application.
+ * Provides channel definitions, sampling modes, result structure, and APIs
+ * for initialization and reading OPAMP outputs (and temperature).
+ */
+
 #include "fsl_lpadc.h"
 #include <stdbool.h>
 
@@ -37,7 +42,11 @@
 
 /* Trigger Configuration */
 #define ADC_TRIGGER_ID          0U
-#define ADC_CLK_DIV             3U
+
+/* Hardware Averaging for Signal Channels */
+#define ADC_HW_AVG_SIGNAL       kLPADC_HardwareAverageCount16
+#define ADC_SAMPLE_TIME_SIGNAL  kLPADC_SampleTimeADCK3
+#define ADC_CLK_DIV             3
 
 /* Temperature Sensor Configuration */
 #define TEMP_SAMPLE_INTERVAL    (10*1000)   /* Sample temperature every 10000 normal reads */

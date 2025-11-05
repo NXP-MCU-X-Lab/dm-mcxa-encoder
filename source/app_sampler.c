@@ -9,6 +9,12 @@
 #include "app_timer.h"
 #include "hardware_init.h"
 
+/* Periodic sampling using CTIMER1:
+ * - Triggers ADC conversions
+ * - Reads raw OPAMP outputs and computes encoder angles
+ * - Stores latest results for safe copying from main context
+ */
+
 /* Use CTIMER1 for periodic sampling to avoid interfering with CTIMER0 timing utility */
 #define SAMPLER_CTIMER        CTIMER1
 #define SAMPLER_CTIMER_IRQn   CTIMER1_IRQn
@@ -100,7 +106,6 @@ void CTIMER1_IRQHandler(void)
     TEST_PIN_Set();
     
     adc_sample_result_t raw = adc_read();
-
     
     s_last_raw = raw;
 

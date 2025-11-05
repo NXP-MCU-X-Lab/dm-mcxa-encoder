@@ -2,6 +2,11 @@
 #ifndef APP_SAMPLER_H
 #define APP_SAMPLER_H
 
+/* Simple CTIMER1-based sampler interface.
+ * Starts/stops periodic ISR that reads ADC and updates encoder results,
+ * and provides thread-safe copy helpers for latest data.
+ */
+
 #include <stdint.h>
 #include "app_encoder.h"
 #include "app_adc.h"

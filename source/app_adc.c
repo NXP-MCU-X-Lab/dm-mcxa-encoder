@@ -14,13 +14,17 @@
 
 #include "app_adc.h"
 
+/* Simple ADC driver for inductive encoder:
+ * - Configures ADCs and trigger routing
+ * - Sets up conversion sequences for OPAMP outputs and temperature
+ * - Provides a single read function returning structured results
+ */
+
 /*******************************************************************************
  * Definitions
  ******************************************************************************/
 
-/* Hardware Averaging for Signal Channels */
-#define ADC_HW_AVG_SIGNAL       kLPADC_HardwareAverageCount16
-#define ADC_SAMPLE_TIME_SIGNAL  kLPADC_SampleTimeADCK35
+
 
 /* Hardware Averaging for Temperature Channel (Must be 128x) */
 #define ADC_HW_AVG_TEMP         kLPADC_HardwareAverageCount128
@@ -126,7 +130,7 @@ static void adc_configure_sequences(void)
         adc_config_signal_cmd(ADC0, ADC_CMD_NORMAL_SEQ, ADC_CH_OPAMP0_OUT, 0U);
         adc_config_signal_cmd(ADC1, ADC_CMD_NORMAL_SEQ, ADC_CH_OPAMP1_OUT, 0U);
         
-        /* Temperature Sequence: OUT0 -> TEMP(×4) -> OUT1 */
+        /* Temperature Sequence: OUT0 -> TEMP(ï¿½4) -> OUT1 */
         adc_config_signal_cmd(ADC0, ADC_CMD_TEMP_SEQ_CH0, ADC_CH_OPAMP0_OUT, ADC_CMD_TEMP_SEQ_CH1);
         adc_config_temp_cmd(ADC0, ADC_CMD_TEMP_SEQ_CH1, 0U);  /* loopCount=3 ? 4 samples */
         adc_config_signal_cmd(ADC1, ADC_CMD_TEMP_SEQ_CH0, ADC_CH_OPAMP1_OUT, 0U);
@@ -300,7 +304,7 @@ adc_sample_result_t adc_read(void)
         result.temperature = g_last_temperature;
         
     } else if (sample_temp) {
-        /* Temperature sequence: OUT0 -> [TEMP×4] -> OUT1 */
+        /* Temperature sequence: OUT0 -> [TEMPï¿½4] -> OUT1 */
         result.opamp0_out = adc_read_fifo(ADC0);
         
         /* Read 4 temperature samples (discard first 2) */
