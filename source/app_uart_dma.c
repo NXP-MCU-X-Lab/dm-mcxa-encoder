@@ -45,9 +45,6 @@ static void uart_edma_callback(LPUART_Type *base,
 
 void uart_dma_demo_init(void)
 {
-    /* Ensure DMA0 is out of reset */
-    RESET_ReleasePeripheralReset(kDMA0_RST_SHIFT_RSTn);
-
     /* Initialize eDMA */
     edma_config_t dmaConfig;
     EDMA_GetDefaultConfig(&dmaConfig);

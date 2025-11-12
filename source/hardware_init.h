@@ -41,10 +41,8 @@ void TEST_PIN_Set(void);
  */
 void TEST_PIN_Clear(void);
 
-/*!
- * @brief Toggle test pin level
- */
-void TEST_PIN_Toggle(void);
+
+void BOARD_InitRS485_Tamagawa(void);
 
 #if defined(__cplusplus)
 }

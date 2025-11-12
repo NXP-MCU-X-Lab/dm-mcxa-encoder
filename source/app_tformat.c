@@ -20,6 +20,7 @@
 #include "app_sampler.h"
 #include "app_encoder.h"
 
+#include <stdio.h>
 
 #define TFORMAT_UART                LPUART2
 #define TFORMAT_DMA                 DMA0
@@ -40,6 +41,7 @@ static edma_handle_t s_tfEdmaTxHandle;
 static edma_handle_t s_tfEdmaRxHandle;
 static lpuart_edma_handle_t s_tfLpuartEdmaHandle;
 static volatile bool s_tfRxDone = false;
+
 /* Default temperature EEPROM address (ADF); adjust if needed */
 static const uint8_t s_tempAdfAddr = 0xE1U;
 
@@ -94,6 +96,9 @@ static status_t tformat_tx_bytes(const uint8_t *tx, size_t txLen)
     lpuart_transfer_t t;
     status_t st;
     t.data = (uint8_t *)tx; t.dataSize = txLen;
+    
+  //  SDK_DelayAtLeastUs(100, CLOCK_GetFreq(kCLOCK_CoreSysClk));
+    
     st = LPUART_SendEDMA(TFORMAT_UART, &s_tfLpuartEdmaHandle, &t);
     if (st != kStatus_Success) return st;
     for (;;)
@@ -113,10 +118,8 @@ static status_t tformat_tx_bytes(const uint8_t *tx, size_t txLen)
 
 void tformat_init(void)
 {
-    RESET_ReleasePeripheralReset(kDMA0_RST_SHIFT_RSTn);
-
     /* Switch to 2.5 Mbps for T-Format transactions */
-    tformat_set_baud(2500000U);
+    tformat_set_baud(2000000U);
     
     edma_config_t dmaConfig;
     EDMA_GetDefaultConfig(&dmaConfig);
@@ -124,8 +127,10 @@ void tformat_init(void)
 
     EDMA_CreateHandle(&s_tfEdmaTxHandle, TFORMAT_DMA, TFORMAT_DMA_TX_CHANNEL);
     EDMA_CreateHandle(&s_tfEdmaRxHandle, TFORMAT_DMA, TFORMAT_DMA_RX_CHANNEL);
+    
     EDMA_SetChannelMux(TFORMAT_DMA, TFORMAT_DMA_TX_CHANNEL, (uint32_t)kDma0RequestLPUART2Tx);
     EDMA_SetChannelMux(TFORMAT_DMA, TFORMAT_DMA_RX_CHANNEL, (uint32_t)kDma0RequestLPUART2Rx);
+    
     LPUART_TransferCreateHandleEDMA(TFORMAT_UART, &s_tfLpuartEdmaHandle, tformat_edma_cb, NULL, &s_tfEdmaTxHandle, &s_tfEdmaRxHandle);
 
     EnableIRQ(DMA_CH6_IRQn);
@@ -136,10 +141,8 @@ void tformat_init(void)
 
 void tformat_slave_loop(void)
 {
-
     uint8_t req[3];
-    encoder_result_t enc;
-
+    
     for (;;)
     {
         /* Receive CF (1 byte) */
@@ -147,6 +150,7 @@ void tformat_slave_loop(void)
         {
             continue;
         }
+        
         uint8_t cf = req[0];
 
         if (cf == CF_ID0_ABS)

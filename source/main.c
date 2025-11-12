@@ -5,7 +5,6 @@
 #include "app_timer.h"
 
 #include "app_encoder.h"
-#include "hipnuc.h"
 #include <stdio.h>
 #include <math.h>
 #include <stdint.h>
@@ -25,10 +24,11 @@
  */
 
 
-static adc_sample_result_t adc_result;
-static encoder_result_t encoder_result;
+ adc_sample_result_t adc_result;
+ encoder_result_t encoder_result;
 static volatile uint8_t timer_evt;
 static volatile uint32_t systick_counter = 0;
+static void perform_encoder_calibration(void);
 
 #define CAL_TOTAL_ITERATIONS    (300000U)
 #define CAL_TARGET_SAMPLES      (2048U)
@@ -36,13 +36,12 @@ static volatile uint32_t systick_counter = 0;
 #define CAL_ZERO_AVG_SAMPLES    (128U)
 
 
-/* Initialize SysTick for 10Hz interrupt */
+/* Initialize SysTick for 10ms tick (100 Hz) */
 void SysTick_Init(void)
 {
     uint32_t systemClock = CLOCK_GetCoreSysClkFreq();
-    SysTick_Config(systemClock / 50);
+    SysTick_Config(systemClock / 100);
 }
-
 
 /* Non-blocking getchar with timeout */
 static int getchar_timeout(uint32_t timeout_ms)
@@ -86,8 +85,6 @@ static void stream_encoder_loop(void)
         if (timer_evt == 1)
         {
             timer_evt = 0;
-            sampler_copy_latest(&encoder_result);
-            sampler_copy_latest_raw(&adc_result);
             printf("Angle: %7.2f deg | Counts: %6ld | Turns: %4d | Sin: %5u | Cos: %5u\r\n",
                    encoder_result.angle_deg,
                    (long)encoder_result.angle_counts,
@@ -116,6 +113,66 @@ static void run_tformat_slave_demo(void)
     while (1)
     {
     }
+}
+
+/* ---------- Mode runners and dispatch ---------- */
+static void run_ascii_stream_mode(void)
+{
+    adc_init(ADC_MODE_OUTPUT_ONLY);
+    start_sampling_default();
+    stream_encoder_loop();
+}
+
+static void run_debug_mode(void)
+{
+    adc_init(ADC_MODE_FULL_DEBUG);
+    start_sampling_default();
+    stream_encoder_loop();
+}
+
+static void run_calibration_then_ascii(void)
+{
+    adc_init(ADC_MODE_CALIBRATION);
+    perform_encoder_calibration();
+    adc_init(ADC_MODE_OUTPUT_ONLY);
+    start_sampling_default();
+    stream_encoder_loop();
+}
+
+typedef void (*mode_handler_t)(void);
+typedef struct {
+    char key;
+    const char *label;
+    mode_handler_t handler;
+} mode_entry_t;
+
+static void print_menu(void)
+{
+    printf("\r\n=== Select Mode (3s timeout, default: Tamagawa T-Format) ===\r\n");
+    printf("1: ASCII Stream Mode (OPAMP outputs only, 2ch)\r\n");
+    printf("2: Debug Mode (All 6 channels: INP, INN, OUT)\r\n");
+    printf("3: Auto Calibration (OPAMP outputs only, 2ch)\r\n");
+    printf("4: UART DMA Demo (TX/RX)\r\n");
+    printf("Select: ");
+}
+
+static void dispatch_mode(char key)
+{
+    static const mode_entry_t entries[] = {
+        {'1', "ASCII Stream Mode", run_ascii_stream_mode},
+        {'2', "Debug Mode",        run_debug_mode},
+        {'3', "Auto Calibration",  run_calibration_then_ascii},
+        {'4', "UART DMA Demo",     run_uart_dma_demo},
+    };
+    uint32_t count = (uint32_t)(sizeof(entries) / sizeof(entries[0]));
+    for (uint32_t i = 0; i < count; i++) {
+        if (entries[i].key == key) {
+            entries[i].handler();
+            return;
+        }
+    }
+    /* Fallback: ASCII stream */
+    run_ascii_stream_mode();
 }
 
 static void perform_encoder_calibration(void)
@@ -282,7 +339,6 @@ static void perform_encoder_calibration(void)
 int main(void)
 {
     int ch;
-    adc_sampling_mode_t adc_mode;
 
     /* Init board hardware */
     BOARD_InitHardware();
@@ -295,59 +351,30 @@ int main(void)
     
     MAU_Atan2PerformanceTest();
             
-    /* ========== Mode Selection with 3s Timeout ========== */
-    printf("\r\n=== Select Mode (3s timeout) ===\r\n");
-    printf("1: Normal Mode (OPAMP outputs only, 2ch)\r\n");
-    printf("2: Debug Mode (All 6 channels: INP, INN, OUT)\r\n");
-    printf("3: Auto Calibration (OPAMP outputs only, 2ch)\r\n");
-    printf("4: UART DMA Demo (TX/RX)\r\n");
-    printf("5: Tamagawa T-Format Demo (ABS + Temp)\r\n");
-    printf("Select: ");
+    /* ========== Mode Selection with 3s Timeout (default: T-Format) ========== */
+    print_menu();
     
     ch = getchar_timeout(3000);  // 3 second timeout
-    
+
     if (ch == -1) {
         printf("timeout\r\n");
-        ch = '1';  // Default to normal mode
-        printf("Auto-selecting Normal Mode\r\n");
+        printf("Auto-selecting Tamagawa T-Format mode\r\n");
+        run_tformat_slave_demo();
     } else {
         printf("%c\r\n", (char)ch);
+        dispatch_mode((char)ch);
     }
-    
-    /* Determine ADC mode or run demos */
-    if (ch == '4')
-    {
-        run_uart_dma_demo();
-    }
-    else if (ch == '5')
-    {
-        run_tformat_slave_demo();
-    }
-    
-    if (ch == '2') {
-        adc_mode = ADC_MODE_FULL_DEBUG;
-    } else if (ch == '3') {
-        adc_mode = ADC_MODE_CALIBRATION;
-    } else {
-        adc_mode = ADC_MODE_OUTPUT_ONLY;
-    }
-    
-    adc_init(adc_mode);
-    
-    /* ========== Auto Calibration Mode ========== */
-    if (ch == '3') {
-        perform_encoder_calibration();
-        ch = '1';  // Switch to normal mode after calibration
-    }
-    
-    start_sampling_default();
-    stream_encoder_loop();
-    
+    /* unreachable: mode handlers are blocking */
+    while (1) {}
 }
 
 void SysTick_Handler(void)
 {
     systick_counter++;
+    
+    sampler_copy_latest(&encoder_result);
+    sampler_copy_latest_raw(&adc_result);
+    
     timer_evt = 1;
 }
 

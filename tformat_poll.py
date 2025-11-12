@@ -26,7 +26,7 @@ RESP_LEN_IDD = 1 + 1 + 1 + 1  # CF + ADF + EDF + CRC = 4
 
 
 # Fixed parameters for demo
-BAUD = 2_500_000
+BAUD = 2_000_000
 RATE_HZ = 100.0
 TIMEOUT_S = 0.05
 CRC_MODE = 'xor'   # fixed: XOR CRC
