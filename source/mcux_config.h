@@ -8,11 +8,16 @@
 #define _MCUX_CONFIG_H_
 
 #define CONFIG_FLASH_BASE_ADDRESS 0x0
-// #define CONFIG_STREAM_FLASH 0
-// #define LIB_JPEG_USE_HW_ACCEL 0
-// #define USE_PNGDEC_DRIVER 0
-#define CONFIG_LV_ATTRIBUTE_MEM_ALIGN 
-#define CONFIG_LV_ATTRIBUTE_LARGE_CONST 
-// #define CONFIG_BOOT_CUSTOM_DEVICE_SETUP 0
+
+
+#define APP_MODE_ASCII            1
+#define APP_MODE_DEBUG            2
+#define APP_MODE_CALIBRATE_ASCII  3
+#define APP_MODE_UART_DMA         4
+#define APP_MODE_FREEMASTER       5
+
+#ifndef APP_START_MODE
+#define APP_START_MODE APP_MODE_FREEMASTER
+#endif
 
 #endif /* _MCUX_CONFIG_H_ */

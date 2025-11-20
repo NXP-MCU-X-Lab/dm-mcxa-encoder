@@ -43,23 +43,6 @@ uint32_t DWT_GetCycles(void)
 }
 
 
-void BOARD_InitRS485_Tamagawa(void)
-{
-    lpuart_config_t config;
-    
-    LPUART_GetDefaultConfig(&config);
-    config.baudRate_Bps = 115200;
-    config.enableTx = true;
-    config.enableRx = true;
-    
-    
-    LPUART_Init(LPUART2, &config, CLOCK_GetFreq(kCLOCK_FroHfDiv));
-    
-    LPUART2->MODIR |= LPUART_MODIR_TXRTSE_MASK;
-    LPUART2->MODIR |= LPUART_MODIR_TXRTSPOL_MASK;
-}
-
-
 /*! @brief Initialize test pin P1_8 for ADC timing measurement */
 void TEST_PIN_Init(void)
 {
@@ -93,6 +76,20 @@ static void BOARD_InitOPAMP(void)
     OPAMP_Enable(OPAMP1, true);
 }
 
+void BOARD_InitUART485Control(LPUART_Type *LPUARTx, uint8_t enable)
+{
+    if(enable)
+    {
+        LPUARTx->MODIR |= LPUART_MODIR_TXRTSE_MASK;
+        LPUARTx->MODIR |= LPUART_MODIR_TXRTSPOL_MASK;
+    }
+    else
+    {
+        LPUARTx->MODIR &= ~LPUART_MODIR_TXRTSE_MASK;
+        LPUARTx->MODIR &= ~LPUART_MODIR_TXRTSPOL_MASK;
+    }
+}
+
 /*${function:start}*/
 void BOARD_InitHardware(void)
 {
@@ -102,7 +99,6 @@ void BOARD_InitHardware(void)
     BOARD_InitOPAMP();
     TEST_PIN_Init();
     DWT_Init();
-    BOARD_InitRS485_Tamagawa();
 }
 
 /*! @brief Set test pin to high level */

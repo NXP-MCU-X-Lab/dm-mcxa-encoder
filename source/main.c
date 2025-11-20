@@ -1,18 +1,26 @@
+
+
+
+#include <stdio.h>
+#include <math.h>
+#include <stdint.h>
 #include "fsl_device_registers.h"
 #include "fsl_debug_console.h"
 #include "board.h"
 #include "app_adc.h"
 #include "app_timer.h"
-
-#include "app_encoder.h"
-#include <stdio.h>
-#include <math.h>
-#include <stdint.h>
 #include "app_sampler.h"
+#include "app_encoder.h"
 #include "hardware_init.h"
+#include "mcux_config.h"
 #include "mau_atan2_test.h"
 #include "app_uart_dma.h"
 #include "app_tformat.h"
+
+#include "freemaster.h"
+#include "freemaster_serial_lpuart.h"
+#include "freemaster_example.h"
+
 
 
 #define SAMPLE_FRQ          (10*1000)
@@ -24,10 +32,8 @@
  */
 
 
- adc_sample_result_t adc_result;
- encoder_result_t encoder_result;
-static volatile uint8_t timer_evt;
-static volatile uint32_t systick_counter = 0;
+adc_sample_result_t adc_result;
+encoder_result_t encoder_result;
 static void perform_encoder_calibration(void);
 
 #define CAL_TOTAL_ITERATIONS    (300000U)
@@ -36,28 +42,6 @@ static void perform_encoder_calibration(void);
 #define CAL_ZERO_AVG_SAMPLES    (128U)
 
 
-/* Initialize SysTick for 10ms tick (100 Hz) */
-void SysTick_Init(void)
-{
-    uint32_t systemClock = CLOCK_GetCoreSysClkFreq();
-    SysTick_Config(systemClock / 100);
-}
-
-/* Non-blocking getchar with timeout */
-static int getchar_timeout(uint32_t timeout_ms)
-{
-    LPUART_Type *base = LPUART2;
-    uint32_t start = systick_counter;
-    uint32_t timeout_ticks = timeout_ms / 10;  // Convert ms to 10ms ticks
-    
-    while ((systick_counter - start) < timeout_ticks) {
-        /* Check if RX data register is full */
-        if ((base->STAT & LPUART_STAT_RDRF_MASK) != 0U) {
-            return (int)(base->DATA & 0xFFU);
-        }
-    }
-    return -1;  // Timeout
-}
 
 static void print_system_clocks(void)
 {
@@ -82,16 +66,10 @@ static void stream_encoder_loop(void)
 {
     while (1)
     {
-        if (timer_evt == 1)
-        {
-            timer_evt = 0;
-            printf("Angle: %7.2f deg | Counts: %6ld | Turns: %4d | Sin: %5u | Cos: %5u\r\n",
-                   encoder_result.angle_deg,
-                   (long)encoder_result.angle_counts,
-                   encoder_result.turns,
-                   adc_result.opamp0_out,
-                   adc_result.opamp1_out);
-        }
+        FMSTR_Example_Poll();
+        sampler_copy_latest(&encoder_result);
+        sampler_copy_latest_raw(&adc_result);
+        SDK_DelayAtLeastUs(10000, CLOCK_GetFreq(kCLOCK_CoreSysClk));
     }
 }
 
@@ -108,6 +86,9 @@ static void run_tformat_slave_demo(void)
 {
     tformat_init();
     adc_init(ADC_MODE_OUTPUT_ONLY);
+    
+    BOARD_InitUART485Control(LPUART2, 1);
+    
     start_sampling_default();
     tformat_slave_loop();
     while (1)
@@ -139,41 +120,22 @@ static void run_calibration_then_ascii(void)
     stream_encoder_loop();
 }
 
-typedef void (*mode_handler_t)(void);
-typedef struct {
-    char key;
-    const char *label;
-    mode_handler_t handler;
-} mode_entry_t;
-
-static void print_menu(void)
+static void run_freemaster_mode(void)
 {
-    printf("\r\n=== Select Mode (3s timeout, default: Tamagawa T-Format) ===\r\n");
-    printf("1: ASCII Stream Mode (OPAMP outputs only, 2ch)\r\n");
-    printf("2: Debug Mode (All 6 channels: INP, INN, OUT)\r\n");
-    printf("3: Auto Calibration (OPAMP outputs only, 2ch)\r\n");
-    printf("4: UART DMA Demo (TX/RX)\r\n");
-    printf("Select: ");
+    adc_init(ADC_MODE_OUTPUT_ONLY);
+    start_sampling_default();
+    
+    FMSTR_SerialSetBaseAddress((LPUART_Type*)LPUART2);
+    FMSTR_Example_Init();
+    
+#if FMSTR_SHORT_INTR || FMSTR_LONG_INTR
+    NVIC_SetPriority(LPUART2_IRQn, 0);
+    EnableIRQ(LPUART2_IRQn);
+#endif
+    stream_encoder_loop();
 }
 
-static void dispatch_mode(char key)
-{
-    static const mode_entry_t entries[] = {
-        {'1', "ASCII Stream Mode", run_ascii_stream_mode},
-        {'2', "Debug Mode",        run_debug_mode},
-        {'3', "Auto Calibration",  run_calibration_then_ascii},
-        {'4', "UART DMA Demo",     run_uart_dma_demo},
-    };
-    uint32_t count = (uint32_t)(sizeof(entries) / sizeof(entries[0]));
-    for (uint32_t i = 0; i < count; i++) {
-        if (entries[i].key == key) {
-            entries[i].handler();
-            return;
-        }
-    }
-    /* Fallback: ASCII stream */
-    run_ascii_stream_mode();
-}
+
 
 static void perform_encoder_calibration(void)
 {
@@ -336,50 +298,55 @@ static void perform_encoder_calibration(void)
 
 
 
+
 int main(void)
 {
-    int ch;
-
     /* Init board hardware */
     BOARD_InitHardware();
     
-    CLOCK_SetupExtClocking(8*1000*1000);              // Enable the 8MHz external crystal
 
-    SysTick_Init();
+    CLOCK_SetupExtClocking(8*1000*1000);              // Enable the 8MHz external crystal
 
     print_system_clocks();
     
     MAU_Atan2PerformanceTest();
-            
-    /* ========== Mode Selection with 3s Timeout (default: T-Format) ========== */
-    print_menu();
     
-    ch = getchar_timeout(3000);  // 3 second timeout
-
-    if (ch == -1) {
-        printf("timeout\r\n");
-        printf("Auto-selecting Tamagawa T-Format mode\r\n");
-        run_tformat_slave_demo();
-    } else {
-        printf("%c\r\n", (char)ch);
-        dispatch_mode((char)ch);
+    switch (APP_START_MODE) {
+    case APP_MODE_ASCII:
+        run_ascii_stream_mode();
+        break;
+    case APP_MODE_DEBUG:
+        run_debug_mode();
+        break;
+    case APP_MODE_CALIBRATE_ASCII:
+        run_calibration_then_ascii();
+        break;
+    case APP_MODE_UART_DMA:
+        run_uart_dma_demo();
+        break;
+    case APP_MODE_FREEMASTER:
+    default:
+        run_freemaster_mode();
+        break;
     }
     /* unreachable: mode handlers are blocking */
     while (1) {}
 }
 
-void SysTick_Handler(void)
+
+#if FMSTR_SHORT_INTR || FMSTR_LONG_INTR
+
+void LPUART2_IRQHandler(void)
 {
-    systick_counter++;
-    
-    sampler_copy_latest(&encoder_result);
-    sampler_copy_latest_raw(&adc_result);
-    
-    timer_evt = 1;
+    FMSTR_SerialIsr();
 }
+#endif
+
 
 void HardFault_Handler(void)
 {
     printf("HardFault_Handler\r\n");
     while(1);
 }
+
+

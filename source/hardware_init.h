@@ -21,28 +21,11 @@
 extern "C" {
 #endif
 
-/*!
- * @brief Initialize hardware components
- */
 void BOARD_InitHardware(void);
-
-/*!
- * @brief Initialize test pin for ADC timing measurement
- */
+void BOARD_InitUART485Control(LPUART_Type *LPUARTx, uint8_t enable);
 void TEST_PIN_Init(void);
-
-/*!
- * @brief Set test pin to high level
- */
 void TEST_PIN_Set(void);
-
-/*!
- * @brief Set test pin to low level
- */
 void TEST_PIN_Clear(void);
-
-
-void BOARD_InitRS485_Tamagawa(void);
 
 #if defined(__cplusplus)
 }

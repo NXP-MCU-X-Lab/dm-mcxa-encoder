@@ -340,7 +340,7 @@
               <MiscControls> -fno-common -fdata-sections -fno-builtin -mthumb</MiscControls>
               <Define>DEBUG, SDK_DEBUGCONSOLE=1, MCUX_META_BUILD, MCUXPRESSO_SDK, CPU_MCXA344VLL, MCXA344_SERIES SDK_DEBUGCONSOLE_UART</Define>
               <Undefine></Undefine>
-              <IncludePath>board;source;CMSIS;CMSIS/m-profile;component/uart;device;device/periph3;drivers;utilities;utilities/debug_console_lite;utilities/str;.\source\nl;.\source\nl\rcv;.\source\freemaster\src\common;.\source\freemaster\src\drivers\mcuxsdk\serial;.\source\freemaster\src\platforms\gen32le</IncludePath>
+              <IncludePath>board;source;CMSIS;CMSIS/m-profile;component/uart;device;device/periph3;drivers;utilities;utilities/debug_console_lite;utilities/str;.\source\nl;.\source\nl\rcv;.\middleware\freemaster\src\common;.\middleware\freemaster\src\drivers\mcuxsdk\serial;.\middleware\freemaster\src\platforms\gen32le</IncludePath>
             </VariousControls>
           </Cads>
           <Aads>
@@ -825,6 +825,16 @@
               <FileType>1</FileType>
               <FilePath>.\source\app_tformat.c</FilePath>
             </File>
+            <File>
+              <FileName>freemaster_example.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>.\source\freemaster_example.c</FilePath>
+            </File>
+            <File>
+              <FileName>freemaster_cfg.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>.\source\freemaster_cfg.h</FilePath>
+            </File>
           </Files>
         </Group>
         <Group>
@@ -884,6 +894,86 @@
               <FileName>fsl_str.h</FileName>
               <FileType>5</FileType>
               <FilePath>utilities/str/fsl_str.h</FilePath>
+            </File>
+          </Files>
+        </Group>
+        <Group>
+          <GroupName>freemaster/common</GroupName>
+          <Files>
+            <File>
+              <FileName>freemaster_appcmd.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>.\middleware\freemaster\src\common\freemaster_appcmd.c</FilePath>
+            </File>
+            <File>
+              <FileName>freemaster_can.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>.\middleware\freemaster\src\common\freemaster_can.c</FilePath>
+            </File>
+            <File>
+              <FileName>freemaster_net.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>.\middleware\freemaster\src\common\freemaster_net.c</FilePath>
+            </File>
+            <File>
+              <FileName>freemaster_pdbdm.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>.\middleware\freemaster\src\common\freemaster_pdbdm.c</FilePath>
+            </File>
+            <File>
+              <FileName>freemaster_pipes.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>.\middleware\freemaster\src\common\freemaster_pipes.c</FilePath>
+            </File>
+            <File>
+              <FileName>freemaster_protocol.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>.\middleware\freemaster\src\common\freemaster_protocol.c</FilePath>
+            </File>
+            <File>
+              <FileName>freemaster_rec.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>.\middleware\freemaster\src\common\freemaster_rec.c</FilePath>
+            </File>
+            <File>
+              <FileName>freemaster_scope.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>.\middleware\freemaster\src\common\freemaster_scope.c</FilePath>
+            </File>
+            <File>
+              <FileName>freemaster_serial.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>.\middleware\freemaster\src\common\freemaster_serial.c</FilePath>
+            </File>
+            <File>
+              <FileName>freemaster_sha.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>.\middleware\freemaster\src\common\freemaster_sha.c</FilePath>
+            </File>
+            <File>
+              <FileName>freemaster_tsa.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>.\middleware\freemaster\src\common\freemaster_tsa.c</FilePath>
+            </File>
+            <File>
+              <FileName>freemaster_ures.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>.\middleware\freemaster\src\common\freemaster_ures.c</FilePath>
+            </File>
+            <File>
+              <FileName>freemaster_utils.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>.\middleware\freemaster\src\common\freemaster_utils.c</FilePath>
+            </File>
+          </Files>
+        </Group>
+        <Group>
+          <GroupName>freemaster/serial</GroupName>
+          <Files>
+            <File>
+              <FileName>freemaster_serial_lpuart.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>.\middleware\freemaster\src\drivers\mcuxsdk\serial\freemaster_serial_lpuart.c</FilePath>
             </File>
           </Files>
         </Group>

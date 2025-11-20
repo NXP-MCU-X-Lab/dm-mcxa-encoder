@@ -13,13 +13,13 @@
 			<member name="function_msgs" type="CMapWordToObEx">ObjId0011</member>
 			<member name="mapfile_types" type="CObListEx">ObjId0012</member>
 			<member name="mapfile_list" type="CObListEx">ObjId0027</member>
-			<member name="mapfile_current" type="sint32">0</member>
+			<member name="mapfile_current" type="sint32">-1</member>
 			<member name="mapfile_listerr_ena" type="sint32">1</member>
 			<member name="mapfile_listerr_mode" type="sint32">0</member>
 			<member name="mapfile_pre_select" type="sint32">0</member>
 			<member name="comm_params_saved" type="sint32">0</member>
 			<member name="comm_state_saved" type="sint32">0</member>
-			<member name="comm_state_enabled" type="sint32">1</member>
+			<member name="comm_state_enabled" type="sint32">0</member>
 			<member name="cthread_boosting" type="sint32">0</member>
 			<member name="cthread_prio_base" type="sint32">3</member>
 			<member name="cthread_prio_boost" type="sint32">3</member>
@@ -57,7 +57,7 @@
 			<member name="unit" type="string">unit</member>
 			<member name="period" type="sint32">500</member>
 			<member name="address" type="string">adc_result.opamp0_inn_voltage</member>
-			<member name="last_addr" type="uint32">0x200005EC</member>
+			<member name="last_addr" type="uint32">0x20004648</member>
 			<member name="byte_size" type="sint32">4</member>
 			<member name="description" type="string"/>
 			<member name="comment" type="string"/>
@@ -106,7 +106,7 @@
 			<member name="unit" type="string">unit</member>
 			<member name="period" type="sint32">500</member>
 			<member name="address" type="string">adc_result.opamp0_inp_voltage</member>
-			<member name="last_addr" type="uint32">0x200005E8</member>
+			<member name="last_addr" type="uint32">0x20004644</member>
 			<member name="byte_size" type="sint32">4</member>
 			<member name="description" type="string"/>
 			<member name="comment" type="string"/>
@@ -155,7 +155,7 @@
 			<member name="unit" type="string">unit</member>
 			<member name="period" type="sint32">500</member>
 			<member name="address" type="string">adc_result.opamp0_out_voltage</member>
-			<member name="last_addr" type="uint32">0x200005F0</member>
+			<member name="last_addr" type="uint32">0x2000464C</member>
 			<member name="byte_size" type="sint32">4</member>
 			<member name="description" type="string"/>
 			<member name="comment" type="string"/>
@@ -204,7 +204,7 @@
 			<member name="unit" type="string">unit</member>
 			<member name="period" type="sint32">500</member>
 			<member name="address" type="string">adc_result.opamp1_inn_voltage</member>
-			<member name="last_addr" type="uint32">0x200005F8</member>
+			<member name="last_addr" type="uint32">0x20004654</member>
 			<member name="byte_size" type="sint32">4</member>
 			<member name="description" type="string"/>
 			<member name="comment" type="string"/>
@@ -253,7 +253,7 @@
 			<member name="unit" type="string">unit</member>
 			<member name="period" type="sint32">500</member>
 			<member name="address" type="string">adc_result.opamp1_inp_voltage</member>
-			<member name="last_addr" type="uint32">0x200005F4</member>
+			<member name="last_addr" type="uint32">0x20004650</member>
 			<member name="byte_size" type="sint32">4</member>
 			<member name="description" type="string"/>
 			<member name="comment" type="string"/>
@@ -302,7 +302,7 @@
 			<member name="unit" type="string">unit</member>
 			<member name="period" type="sint32">500</member>
 			<member name="address" type="string">adc_result.opamp1_out_voltage</member>
-			<member name="last_addr" type="uint32">0x200005FC</member>
+			<member name="last_addr" type="uint32">0x20004658</member>
 			<member name="byte_size" type="sint32">4</member>
 			<member name="description" type="string"/>
 			<member name="comment" type="string"/>
@@ -351,7 +351,7 @@
 			<member name="unit" type="string">unit</member>
 			<member name="period" type="sint32">1000</member>
 			<member name="address" type="string">encoder_result.angle_deg</member>
-			<member name="last_addr" type="uint32">0x20000620</member>
+			<member name="last_addr" type="uint32">0x2000467C</member>
 			<member name="byte_size" type="sint32">4</member>
 			<member name="description" type="string"/>
 			<member name="comment" type="string"/>
@@ -400,7 +400,7 @@
 			<member name="unit" type="string">unit</member>
 			<member name="period" type="sint32">1000</member>
 			<member name="address" type="string">encoder_result.turns</member>
-			<member name="last_addr" type="uint32">0x20000624</member>
+			<member name="last_addr" type="uint32">0x20004680</member>
 			<member name="byte_size" type="sint32">4</member>
 			<member name="description" type="string"/>
 			<member name="comment" type="string"/>
@@ -449,7 +449,7 @@
 			<member name="unit" type="string">unit</member>
 			<member name="period" type="sint32">1000</member>
 			<member name="address" type="string">adc_result.temperature</member>
-			<member name="last_addr" type="uint32">0x20000600</member>
+			<member name="last_addr" type="uint32">0x2000465C</member>
 			<member name="byte_size" type="sint32">4</member>
 			<member name="description" type="string"/>
 			<member name="comment" type="string"/>
@@ -685,13 +685,7 @@
 			<member name="size_shift_right" type="sint32">0</member>
 			<member name="type_index" type="sint32">-1</member>
 		</object>
-		<object name="ObjId0027" type="CObList">
-			<member name="item0" type="CObject_ptr">ObjId0183</member>
-		</object>
-		<object name="ObjId0183" type="CPrjDoc_MapFileInfo">
-			<member name="file_name" type="string">..\debug\ind_encoder.axf</member>
-			<member name="file_type" type="CObject_ptr">ObjId0013</member>
-		</object>
+		<object name="ObjId0027" type="CObList"/>
 		<object name="ObjId0029" type="CStringList"/>
 		<object name="ObjId0030" type="CPrjItemProject">
 			<member name="parent_item" type="CObject_ptr">NULL</member>
