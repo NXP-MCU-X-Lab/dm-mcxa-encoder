@@ -66,21 +66,13 @@ static void stream_encoder_loop(void)
 {
     while (1)
     {
-        FMSTR_Example_Poll();
+        FMSTR_Poll();
         sampler_copy_latest(&encoder_result);
         sampler_copy_latest_raw(&adc_result);
         SDK_DelayAtLeastUs(10000, CLOCK_GetFreq(kCLOCK_CoreSysClk));
     }
 }
 
-static void run_uart_dma_demo(void)
-{
-    uart_dma_demo_init();
-    uart_dma_demo_run();
-    while (1)
-    {
-    }
-}
 
 static void run_tformat_slave_demo(void)
 {
@@ -104,20 +96,11 @@ static void run_ascii_stream_mode(void)
     stream_encoder_loop();
 }
 
-static void run_debug_mode(void)
-{
-    adc_init(ADC_MODE_FULL_DEBUG);
-    start_sampling_default();
-    stream_encoder_loop();
-}
 
 static void run_calibration_then_ascii(void)
 {
     adc_init(ADC_MODE_CALIBRATION);
     perform_encoder_calibration();
-    adc_init(ADC_MODE_OUTPUT_ONLY);
-    start_sampling_default();
-    stream_encoder_loop();
 }
 
 static void run_freemaster_mode(void)
@@ -125,12 +108,12 @@ static void run_freemaster_mode(void)
     adc_init(ADC_MODE_OUTPUT_ONLY);
     start_sampling_default();
     
-    FMSTR_SerialSetBaseAddress((LPUART_Type*)LPUART2);
+    FMSTR_SerialSetBaseAddress((LPUART_Type*)LPUART0);
     FMSTR_Example_Init();
     
 #if FMSTR_SHORT_INTR || FMSTR_LONG_INTR
-    NVIC_SetPriority(LPUART2_IRQn, 0);
-    EnableIRQ(LPUART2_IRQn);
+    NVIC_SetPriority(LPUART0_IRQn, 0);
+    EnableIRQ(LPUART0_IRQn);
 #endif
     stream_encoder_loop();
 }
@@ -304,25 +287,16 @@ int main(void)
     /* Init board hardware */
     BOARD_InitHardware();
     
-
-    CLOCK_SetupExtClocking(8*1000*1000);              // Enable the 8MHz external crystal
+   // CLOCK_SetupExtClocking(8*1000*1000);              // Enable the 8MHz external crystal
 
     print_system_clocks();
-    
-    MAU_Atan2PerformanceTest();
     
     switch (APP_START_MODE) {
     case APP_MODE_ASCII:
         run_ascii_stream_mode();
         break;
-    case APP_MODE_DEBUG:
-        run_debug_mode();
-        break;
     case APP_MODE_CALIBRATE_ASCII:
         run_calibration_then_ascii();
-        break;
-    case APP_MODE_UART_DMA:
-        run_uart_dma_demo();
         break;
     case APP_MODE_FREEMASTER:
     default:
@@ -340,6 +314,12 @@ void LPUART2_IRQHandler(void)
 {
     FMSTR_SerialIsr();
 }
+
+void LPUART0_IRQHandler(void)
+{
+    FMSTR_SerialIsr();
+}
+
 #endif
 
 

@@ -11,13 +11,10 @@
 
 
 #define APP_MODE_ASCII            1
-#define APP_MODE_DEBUG            2
 #define APP_MODE_CALIBRATE_ASCII  3
-#define APP_MODE_UART_DMA         4
 #define APP_MODE_FREEMASTER       5
 
-#ifndef APP_START_MODE
+
 #define APP_START_MODE APP_MODE_FREEMASTER
-#endif
 
 #endif /* _MCUX_CONFIG_H_ */

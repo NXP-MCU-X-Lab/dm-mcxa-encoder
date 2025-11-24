@@ -16,11 +16,11 @@
 
 // ========== Calibration Parameters ==========
 static encoder_calibration_t s_calibration = {
-    .sin_center = 33486.0f,
-    .cos_center = 33783.0f,
+    .sin_center = 26346.650,
+    .cos_center = 20356.039,
     .transform = {
-        {0.000063, 0.000019},
-        {-0.000020, 0.000068}
+        {0.000074, -0.000024},
+        {0.000027, 0.000082}
     }
 };
 

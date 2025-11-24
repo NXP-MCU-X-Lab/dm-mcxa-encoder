@@ -103,9 +103,3 @@ void FMSTR_Example_Init(void)
 }
 
 
-void FMSTR_Example_Poll(void)
-{
-   FMSTR_Poll();
-}
-
-

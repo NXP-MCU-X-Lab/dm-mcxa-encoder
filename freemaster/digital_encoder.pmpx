@@ -57,7 +57,7 @@
 			<member name="unit" type="string">unit</member>
 			<member name="period" type="sint32">500</member>
 			<member name="address" type="string">adc_result.opamp0_inn_voltage</member>
-			<member name="last_addr" type="uint32">0x20004648</member>
+			<member name="last_addr" type="uint32">0x20000530</member>
 			<member name="byte_size" type="sint32">4</member>
 			<member name="description" type="string"/>
 			<member name="comment" type="string"/>
@@ -106,7 +106,7 @@
 			<member name="unit" type="string">unit</member>
 			<member name="period" type="sint32">500</member>
 			<member name="address" type="string">adc_result.opamp0_inp_voltage</member>
-			<member name="last_addr" type="uint32">0x20004644</member>
+			<member name="last_addr" type="uint32">0x2000052C</member>
 			<member name="byte_size" type="sint32">4</member>
 			<member name="description" type="string"/>
 			<member name="comment" type="string"/>
@@ -155,7 +155,7 @@
 			<member name="unit" type="string">unit</member>
 			<member name="period" type="sint32">500</member>
 			<member name="address" type="string">adc_result.opamp0_out_voltage</member>
-			<member name="last_addr" type="uint32">0x2000464C</member>
+			<member name="last_addr" type="uint32">0x20000534</member>
 			<member name="byte_size" type="sint32">4</member>
 			<member name="description" type="string"/>
 			<member name="comment" type="string"/>
@@ -204,7 +204,7 @@
 			<member name="unit" type="string">unit</member>
 			<member name="period" type="sint32">500</member>
 			<member name="address" type="string">adc_result.opamp1_inn_voltage</member>
-			<member name="last_addr" type="uint32">0x20004654</member>
+			<member name="last_addr" type="uint32">0x2000053C</member>
 			<member name="byte_size" type="sint32">4</member>
 			<member name="description" type="string"/>
 			<member name="comment" type="string"/>
@@ -253,7 +253,7 @@
 			<member name="unit" type="string">unit</member>
 			<member name="period" type="sint32">500</member>
 			<member name="address" type="string">adc_result.opamp1_inp_voltage</member>
-			<member name="last_addr" type="uint32">0x20004650</member>
+			<member name="last_addr" type="uint32">0x20000538</member>
 			<member name="byte_size" type="sint32">4</member>
 			<member name="description" type="string"/>
 			<member name="comment" type="string"/>
@@ -302,7 +302,7 @@
 			<member name="unit" type="string">unit</member>
 			<member name="period" type="sint32">500</member>
 			<member name="address" type="string">adc_result.opamp1_out_voltage</member>
-			<member name="last_addr" type="uint32">0x20004658</member>
+			<member name="last_addr" type="uint32">0x20000540</member>
 			<member name="byte_size" type="sint32">4</member>
 			<member name="description" type="string"/>
 			<member name="comment" type="string"/>
@@ -351,7 +351,7 @@
 			<member name="unit" type="string">unit</member>
 			<member name="period" type="sint32">1000</member>
 			<member name="address" type="string">encoder_result.angle_deg</member>
-			<member name="last_addr" type="uint32">0x2000467C</member>
+			<member name="last_addr" type="uint32">0x20000564</member>
 			<member name="byte_size" type="sint32">4</member>
 			<member name="description" type="string"/>
 			<member name="comment" type="string"/>
@@ -400,7 +400,7 @@
 			<member name="unit" type="string">unit</member>
 			<member name="period" type="sint32">1000</member>
 			<member name="address" type="string">encoder_result.turns</member>
-			<member name="last_addr" type="uint32">0x20004680</member>
+			<member name="last_addr" type="uint32">0x20000568</member>
 			<member name="byte_size" type="sint32">4</member>
 			<member name="description" type="string"/>
 			<member name="comment" type="string"/>
@@ -449,7 +449,7 @@
 			<member name="unit" type="string">unit</member>
 			<member name="period" type="sint32">1000</member>
 			<member name="address" type="string">adc_result.temperature</member>
-			<member name="last_addr" type="uint32">0x2000465C</member>
+			<member name="last_addr" type="uint32">0x20000544</member>
 			<member name="byte_size" type="sint32">4</member>
 			<member name="description" type="string"/>
 			<member name="comment" type="string"/>

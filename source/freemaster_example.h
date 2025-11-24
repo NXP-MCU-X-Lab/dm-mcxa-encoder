@@ -20,7 +20,6 @@ extern "C" {
 
 // Prototypes of example functions
 void FMSTR_Example_Init(void);
-void FMSTR_Example_Poll(void);
 
 #ifdef __cplusplus
 }
