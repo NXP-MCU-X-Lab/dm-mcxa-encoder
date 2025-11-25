@@ -12,7 +12,8 @@
 #include "fsl_opamp.h"
 #include "fsl_gpio.h"
 #include "fsl_port.h"
-#include "board.h"
+#include "fsl_debug_console.h"
+#include "clock_config.h"
 #include "hardware_init.h"
 #include <stdbool.h>
 /*${header:end}*/
@@ -22,9 +23,14 @@
 
 
 /* Test pin for ADC timing measurement */
-#define TEST_PIN_GPIO       GPIO1
-#define TEST_PIN_PORT       PORT1
-#define TEST_PIN_NUM        8U
+#define TEST_PIN_GPIO       GPIO3
+#define TEST_PIN_PORT       PORT3
+#define TEST_PIN_NUM        10U
+
+#define HEARTBEAT_GPIO      GPIO3
+#define HEARTBEAT_PORT      PORT3
+#define HEARTBEAT_PIN       11U
+#define HEARTBEAT_TOGGLE_INTERVAL_MS 500U
 
 #define DEMO_OPAMP_COMP_CAP       kOPAMP_FitGain2x
 #define DEMO_OPAMP_BIAS_CURRENT   kOPAMP_ChangeToQuarter
@@ -44,7 +50,7 @@ uint32_t DWT_GetCycles(void)
 
 
 /*! @brief Initialize test pin P1_8 for ADC timing measurement */
-void TEST_PIN_Init(void)
+void TestPin_Init(void)
 {
     gpio_pin_config_t pin_config = {
         .pinDirection = kGPIO_DigitalOutput,
@@ -57,8 +63,32 @@ void TEST_PIN_Init(void)
     
 }
 
+static volatile uint32_t s_heartbeat_ms_accum = 0U;
+
+void Heartbeat_Init(void)
+{
+    gpio_pin_config_t pin_config = {
+        .pinDirection = kGPIO_DigitalOutput,
+        .outputLogic = 0
+    };
+    PORT_SetPinMux(HEARTBEAT_PORT, HEARTBEAT_PIN, kPORT_MuxAsGpio);
+    GPIO_PinInit(HEARTBEAT_GPIO, HEARTBEAT_PIN, &pin_config);
+    uint32_t core_hz = CLOCK_GetFreq(kCLOCK_CoreSysClk);
+    SysTick_Config(core_hz / 1000U);
+}
+
+void SysTick_Handler(void)
+{
+    s_heartbeat_ms_accum++;
+    if (s_heartbeat_ms_accum >= HEARTBEAT_TOGGLE_INTERVAL_MS)
+    {
+        s_heartbeat_ms_accum = 0U;
+        GPIO_PortToggle(HEARTBEAT_GPIO, 1U << HEARTBEAT_PIN);
+    }
+}
+
 /*! @brief Configure OPAMP modules */
-static void BOARD_InitOPAMP(void)
+static void Opamp_InitAll(void)
 {
     opamp_config_t config;
 
@@ -76,9 +106,9 @@ static void BOARD_InitOPAMP(void)
     OPAMP_Enable(OPAMP1, true);
 }
 
-void BOARD_InitUART485Control(LPUART_Type *LPUARTx, uint8_t enable)
+void UART485_SetTxRts(LPUART_Type *LPUARTx, bool enable)
 {
-    if(enable)
+    if (enable)
     {
         LPUARTx->MODIR |= LPUART_MODIR_TXRTSE_MASK;
         LPUARTx->MODIR |= LPUART_MODIR_TXRTSPOL_MASK;
@@ -91,24 +121,33 @@ void BOARD_InitUART485Control(LPUART_Type *LPUARTx, uint8_t enable)
 }
 
 /*${function:start}*/
-void BOARD_InitHardware(void)
+void Hardware_Init(void)
 {
-    BOARD_InitDEBUG_UARTPins();
+    Pins_Init();
     BOARD_InitBootClocks();
-    BOARD_InitDebugConsole();
-    BOARD_InitOPAMP();
-    TEST_PIN_Init();
+    Hardware_DebugConsoleInit();
+    Opamp_InitAll();
+    TestPin_Init();
     DWT_Init();
+    Heartbeat_Init();
 }
 
 /*! @brief Set test pin to high level */
-void TEST_PIN_Set(void)
+void TestPin_Set(void)
 {
     GPIO_PinWrite(TEST_PIN_GPIO, TEST_PIN_NUM, 1U);
 }
 
 /*! @brief Set test pin to low level */
-void TEST_PIN_Clear(void)
+void TestPin_Clear(void)
 {
     GPIO_PinWrite(TEST_PIN_GPIO, TEST_PIN_NUM, 0U);
+}
+
+void Hardware_DebugConsoleInit(void)
+{
+    CLOCK_SetClockDiv(kCLOCK_DivLPUART0, 1u);
+    CLOCK_AttachClk(HW_DEBUG_UART_CLK_ATTACH);
+    RESET_PeripheralReset(HW_DEBUG_UART_RST);
+    DbgConsole_Init(HW_DEBUG_UART_INSTANCE, HW_DEBUG_UART_BAUDRATE, kSerialPort_Uart, CLOCK_GetFreq(kCLOCK_FroHfDiv));
 }

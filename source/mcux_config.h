@@ -10,11 +10,6 @@
 #define CONFIG_FLASH_BASE_ADDRESS 0x0
 
 
-#define APP_MODE_ASCII            1
-#define APP_MODE_CALIBRATE_ASCII  3
 #define APP_MODE_FREEMASTER       5
-
-
-#define APP_START_MODE APP_MODE_FREEMASTER
 
 #endif /* _MCUX_CONFIG_H_ */

@@ -33,19 +33,7 @@ pin_labels:
 #include "fsl_gpio.h"
 #include "pin_mux.h"
 
-/* FUNCTION ************************************************************************************************************
- *
- * Function Name : BOARD_InitBootPins
- * Description   : Calls initialization functions.
- *
- * END ****************************************************************************************************************/
-void BOARD_InitBootPins(void)
-{
-    BOARD_InitDEBUG_UARTPins();
-}
-
-
-void BOARD_InitDEBUG_UARTPins(void)
+void Pins_Init(void)
 {
     CLOCK_EnableClock(kCLOCK_GatePORT0);
     CLOCK_EnableClock(kCLOCK_GatePORT1);
@@ -152,7 +140,7 @@ void BOARD_InitDEBUG_UARTPins(void)
     /* PORT2_3 (pin 36) is configured as LPUART2_RTS_B */
     PORT_SetPinConfig(PORT1, 6, &port1_6_config);
                                                     
-                 
+    /* UART0 */
     const port_pin_config_t port2_0_config = {/* Internal pull-up resistor is enabled */
                                                     .pullSelect = kPORT_PullUp,
                                                     /* Low internal pull resistor value is selected. */
@@ -199,7 +187,6 @@ void BOARD_InitDEBUG_UARTPins(void)
                                                     .invertInput = kPORT_InputNormal,
                                                     /* Pin Control Register fields [15:0] are not locked */
                                                     .lockRegister = kPORT_UnlockRegister};
-    /* PORT2_3 (pin 36) is configured as LPUART2_RTS_B */
     PORT_SetPinConfig(PORT2, 1, &port2_1_config);
 
                                                     
@@ -239,7 +226,7 @@ void BOARD_InitDEBUG_UARTPins(void)
     PORT_SetPinConfig(PORT3, 28, &port2_12_13_15_16_17_19_config);
                                                     
                                                     
-    const port_pin_config_t port1_8_config = {/* Internal pull-up resistor is enabled */
+    const port_pin_config_t port_gpio_config = {/* Internal pull-up resistor is enabled */
                                                     .pullSelect = kPORT_PullUp,
                                                     /* Low internal pull resistor value is selected. */
                                                     .pullValueSelect = kPORT_LowPullResistor,
@@ -260,7 +247,7 @@ void BOARD_InitDEBUG_UARTPins(void)
                                                     .invertInput = kPORT_InputNormal,
                                                     /* Pin Control Register fields [15:0] are not locked */
                                                     .lockRegister = kPORT_UnlockRegister};
-    PORT_SetPinConfig(PORT1, 8, &port1_8_config);
-    PORT_SetPinConfig(PORT1, 9, &port1_8_config);
+    PORT_SetPinConfig(PORT3, 10, &port_gpio_config);
+    PORT_SetPinConfig(PORT3, 11, &port_gpio_config);
 }
 

@@ -6,7 +6,6 @@
 #include <stdint.h>
 #include "fsl_device_registers.h"
 #include "fsl_debug_console.h"
-#include "board.h"
 #include "app_adc.h"
 #include "app_timer.h"
 #include "app_sampler.h"
@@ -35,6 +34,7 @@
 adc_sample_result_t adc_result;
 encoder_result_t encoder_result;
 static void perform_encoder_calibration(void);
+static void stream_encoder_loop(void);
 
 #define CAL_TOTAL_ITERATIONS    (300000U)
 #define CAL_TARGET_SAMPLES      (2048U)
@@ -62,24 +62,139 @@ static void start_sampling_default(void)
     encoder_set_direction(-1);
 }
 
-static void stream_encoder_loop(void)
+static void perform_encoder_calibration_fm(void)
 {
-    while (1)
-    {
-        FMSTR_Poll();
-        sampler_copy_latest(&encoder_result);
-        sampler_copy_latest_raw(&adc_result);
-        SDK_DelayAtLeastUs(10000, CLOCK_GetFreq(kCLOCK_CoreSysClk));
+    sampler_stop();
+    fm_cal_done = 0;
+    fm_cal_progress = 0;
+
+    uint16_t sin_min = 65535, sin_max = 0;
+    uint16_t cos_min = 65535, cos_max = 0;
+
+    double sum_sin = 0.0;
+    double sum_cos = 0.0;
+    double sum_sin2 = 0.0;
+    double sum_cos2 = 0.0;
+    double sum_sincos = 0.0;
+    uint32_t sample_count = 0;
+
+    uint32_t stride = (CAL_TARGET_SAMPLES > 0) ? (CAL_TOTAL_ITERATIONS / CAL_TARGET_SAMPLES) : 1U;
+    if (stride == 0U) {
+        stride = 1U;
     }
+
+    for (uint32_t i = 0; i < CAL_TOTAL_ITERATIONS; i++) {
+        FMSTR_Poll();
+        adc_sample_result_t result = adc_read();
+
+        if (result.opamp0_out < sin_min) sin_min = result.opamp0_out;
+        if (result.opamp0_out > sin_max) sin_max = result.opamp0_out;
+        if (result.opamp1_out < cos_min) cos_min = result.opamp1_out;
+        if (result.opamp1_out > cos_max) cos_max = result.opamp1_out;
+
+        if ((i % stride) == 0U && sample_count < CAL_TARGET_SAMPLES) {
+            double sin_raw = (double)result.opamp0_out;
+            double cos_raw = (double)result.opamp1_out;
+            sum_sin += sin_raw;
+            sum_cos += cos_raw;
+            sum_sin2 += sin_raw * sin_raw;
+            sum_cos2 += cos_raw * cos_raw;
+            sum_sincos += sin_raw * cos_raw;
+            sample_count++;
+        }
+
+        fm_cal_progress = (uint16_t)((i * 100U) / CAL_TOTAL_ITERATIONS);
+        SDK_DelayAtLeastUs(100, CLOCK_GetFreq(kCLOCK_CoreSysClk));
+    }
+
+    if (sample_count < 16U) {
+        encoder_calibrate(sin_min, sin_max, cos_min, cos_max);
+    } else {
+        double invN = 1.0 / (double)sample_count;
+        double mean_sin = sum_sin * invN;
+        double mean_cos = sum_cos * invN;
+        double var_sin = (sum_sin2 * invN) - mean_sin * mean_sin;
+        double var_cos = (sum_cos2 * invN) - mean_cos * mean_cos;
+        double cov_sc = (sum_sincos * invN) - mean_sin * mean_cos;
+
+        const double min_var = 1.0;
+        if (var_sin < min_var) var_sin = min_var;
+        if (var_cos < min_var) var_cos = min_var;
+
+        float a = (float)var_sin;
+        float b = (float)cov_sc;
+        float d = (float)var_cos;
+
+        float trace = a + d;
+        float delta = trace * 0.5f * trace * 0.5f - (a * d - b * b);
+        if (delta < 0.0f) delta = 0.0f;
+        float root = sqrtf(delta);
+        float lambda1 = trace * 0.5f + root;
+        float lambda2 = trace * 0.5f - root;
+
+        if (lambda1 < 1e-6f) lambda1 = 1e-6f;
+        if (lambda2 < 1e-6f) lambda2 = 1e-6f;
+
+        float v1x = 1.0f, v1y = 0.0f;
+        float v2x = 0.0f, v2y = 1.0f;
+
+        if (fabsf(b) > 1e-3f) {
+            v1x = lambda1 - d;
+            v1y = b;
+            float norm = sqrtf(v1x * v1x + v1y * v1y);
+            if (norm > 1e-6f) {
+                v1x /= norm;
+                v1y /= norm;
+            } else {
+                v1x = 1.0f;
+                v1y = 0.0f;
+            }
+            v2x = -v1y;
+            v2y = v1x;
+        } else {
+            if (a < d) {
+                v1x = 0.0f; v1y = 1.0f;
+                v2x = 1.0f; v2y = 0.0f;
+            }
+        }
+
+        float scale1 = 1.0f / sqrtf(2.0f * lambda1);
+        float scale2 = 1.0f / sqrtf(2.0f * lambda2);
+
+        encoder_calibration_t cal;
+        cal.sin_center = (float)mean_sin;
+        cal.cos_center = (float)mean_cos;
+        cal.transform[0][0] = scale1 * v1x;
+        cal.transform[0][1] = scale1 * v1y;
+        cal.transform[1][0] = scale2 * v2x;
+        cal.transform[1][1] = scale2 * v2y;
+
+        float det_t = cal.transform[0][0] * cal.transform[1][1] - cal.transform[0][1] * cal.transform[1][0];
+        if (det_t < 0.0f) {
+            cal.transform[1][0] = -cal.transform[1][0];
+            cal.transform[1][1] = -cal.transform[1][1];
+        }
+
+        if (!isfinite(cal.transform[0][0]) || !isfinite(cal.transform[0][1]) ||
+            !isfinite(cal.transform[1][0]) || !isfinite(cal.transform[1][1])) {
+            encoder_calibrate(sin_min, sin_max, cos_min, cos_max);
+        } else {
+            encoder_apply_calibration(&cal);
+        }
+    }
+
+    fm_cal_progress = 100;
+    fm_cal_done = 1;
+    sampler_start();
 }
 
 
 static void run_tformat_slave_demo(void)
 {
     tformat_init();
-    adc_init(ADC_MODE_OUTPUT_ONLY);
+    adc_init();
     
-    BOARD_InitUART485Control(LPUART2, 1);
+    UART485_SetTxRts(LPUART2, true);
     
     start_sampling_default();
     tformat_slave_loop();
@@ -91,7 +206,7 @@ static void run_tformat_slave_demo(void)
 /* ---------- Mode runners and dispatch ---------- */
 static void run_ascii_stream_mode(void)
 {
-    adc_init(ADC_MODE_OUTPUT_ONLY);
+    adc_init();
     start_sampling_default();
     stream_encoder_loop();
 }
@@ -99,13 +214,13 @@ static void run_ascii_stream_mode(void)
 
 static void run_calibration_then_ascii(void)
 {
-    adc_init(ADC_MODE_CALIBRATION);
+    adc_init();
     perform_encoder_calibration();
 }
 
 static void run_freemaster_mode(void)
 {
-    adc_init(ADC_MODE_OUTPUT_ONLY);
+    adc_init();
     start_sampling_default();
     
     FMSTR_SerialSetBaseAddress((LPUART_Type*)LPUART0);
@@ -285,24 +400,13 @@ static void perform_encoder_calibration(void)
 int main(void)
 {
     /* Init board hardware */
-    BOARD_InitHardware();
+    Hardware_Init();
     
    // CLOCK_SetupExtClocking(8*1000*1000);              // Enable the 8MHz external crystal
 
     print_system_clocks();
     
-    switch (APP_START_MODE) {
-    case APP_MODE_ASCII:
-        run_ascii_stream_mode();
-        break;
-    case APP_MODE_CALIBRATE_ASCII:
-        run_calibration_then_ascii();
-        break;
-    case APP_MODE_FREEMASTER:
-    default:
-        run_freemaster_mode();
-        break;
-    }
+    run_freemaster_mode();
     /* unreachable: mode handlers are blocking */
     while (1) {}
 }
@@ -330,3 +434,17 @@ void HardFault_Handler(void)
 }
 
 
+static void stream_encoder_loop(void)
+{
+    while (1)
+    {
+        FMSTR_Poll();
+        if (fm_cal_enable) {
+            fm_cal_enable = 0;
+            perform_encoder_calibration_fm();
+        }
+        sampler_copy_latest(&encoder_result);
+        sampler_copy_latest_raw(&adc_result);
+        SDK_DelayAtLeastUs(10000, CLOCK_GetFreq(kCLOCK_CoreSysClk));
+    }
+}

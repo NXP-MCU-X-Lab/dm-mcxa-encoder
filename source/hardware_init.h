@@ -8,6 +8,7 @@
 #define _HARDWARE_INIT_H_
 
 #include "fsl_common.h"
+#include <stdbool.h>
 
 /*******************************************************************************
  * Definitions
@@ -21,11 +22,19 @@
 extern "C" {
 #endif
 
-void BOARD_InitHardware(void);
-void BOARD_InitUART485Control(LPUART_Type *LPUARTx, uint8_t enable);
-void TEST_PIN_Init(void);
-void TEST_PIN_Set(void);
-void TEST_PIN_Clear(void);
+/* Debug console configuration */
+#define HW_DEBUG_UART_INSTANCE   0U
+#define HW_DEBUG_UART_BAUDRATE   115200U
+#define HW_DEBUG_UART_CLK_ATTACH kFRO_HF_DIV_to_LPUART0
+#define HW_DEBUG_UART_RST        kLPUART0_RST_SHIFT_RSTn
+
+void Hardware_Init(void);
+void Hardware_DebugConsoleInit(void);
+void UART485_SetTxRts(LPUART_Type *LPUARTx, bool enable);
+void TestPin_Init(void);
+void TestPin_Set(void);
+void TestPin_Clear(void);
+void Heartbeat_Init(void);
 
 #if defined(__cplusplus)
 }

@@ -24,7 +24,10 @@ extern encoder_result_t encoder_result;
 
 #define ARR_SIZE_FLT 10
 
-volatile unsigned long var32;
+
+volatile uint8_t fm_cal_enable;
+volatile uint8_t fm_cal_done;
+volatile uint16_t fm_cal_progress;
 
 
 
@@ -44,21 +47,15 @@ volatile unsigned long var32;
 
 FMSTR_TSA_TABLE_BEGIN(first_table)
     // ========== Simple Variables ==========
-    FMSTR_TSA_RO_VAR(var32, FMSTR_TSA_UINT32)
+    FMSTR_TSA_RW_VAR(fm_cal_enable, FMSTR_TSA_UINT8)
+    FMSTR_TSA_RO_VAR(fm_cal_done, FMSTR_TSA_UINT8)
+    FMSTR_TSA_RO_VAR(fm_cal_progress, FMSTR_TSA_UINT16)
 
     // ========== ADC Result Structure ==========
     FMSTR_TSA_STRUCT(adc_sample_result_t)
-        FMSTR_TSA_MEMBER(adc_sample_result_t, opamp0_inp, FMSTR_TSA_UINT16)
-        FMSTR_TSA_MEMBER(adc_sample_result_t, opamp0_inn, FMSTR_TSA_UINT16)
         FMSTR_TSA_MEMBER(adc_sample_result_t, opamp0_out, FMSTR_TSA_UINT16)
-        FMSTR_TSA_MEMBER(adc_sample_result_t, opamp1_inp, FMSTR_TSA_UINT16)
-        FMSTR_TSA_MEMBER(adc_sample_result_t, opamp1_inn, FMSTR_TSA_UINT16)
         FMSTR_TSA_MEMBER(adc_sample_result_t, opamp1_out, FMSTR_TSA_UINT16)
-        FMSTR_TSA_MEMBER(adc_sample_result_t, opamp0_inp_voltage, FMSTR_TSA_FLOAT)
-        FMSTR_TSA_MEMBER(adc_sample_result_t, opamp0_inn_voltage, FMSTR_TSA_FLOAT)
         FMSTR_TSA_MEMBER(adc_sample_result_t, opamp0_out_voltage, FMSTR_TSA_FLOAT)
-        FMSTR_TSA_MEMBER(adc_sample_result_t, opamp1_inp_voltage, FMSTR_TSA_FLOAT)
-        FMSTR_TSA_MEMBER(adc_sample_result_t, opamp1_inn_voltage, FMSTR_TSA_FLOAT)
         FMSTR_TSA_MEMBER(adc_sample_result_t, opamp1_out_voltage, FMSTR_TSA_FLOAT)
         FMSTR_TSA_MEMBER(adc_sample_result_t, temperature, FMSTR_TSA_FLOAT)
     
@@ -98,8 +95,10 @@ void FMSTR_Example_Init(void)
 {
     int i;
 
-    var32    = 55;
     FMSTR_Init();
+    fm_cal_enable = 0;
+    fm_cal_done = 0;
+    fm_cal_progress = 0;
 }
 
 

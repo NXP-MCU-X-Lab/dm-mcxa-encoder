@@ -29,13 +29,7 @@ extern "C" {
  * @brief Calls initialization functions.
  *
  */
-void BOARD_InitBootPins(void);
-
-/*!
- * @brief Configures pin routing and optionally pin electrical features.
- *
- */
-void BOARD_InitDEBUG_UARTPins(void);
+void Pins_Init(void);
 
 
 

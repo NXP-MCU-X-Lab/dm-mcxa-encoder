@@ -221,7 +221,37 @@
             color: var(--danger);
             font-size: 0.9em;
             margin-top: 10px;
+            }
+
+        .action-btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            padding: 10px 16px;
+            border: 1px solid var(--card-border);
+            border-radius: 8px;
+            color: var(--text-primary);
+            background: linear-gradient(180deg, rgba(255,255,255,0.1), rgba(255,255,255,0.05));
+            cursor: pointer;
+            transition: transform 0.1s ease, box-shadow 0.2s ease;
+            box-shadow: 0 6px 16px rgba(0,0,0,0.25);
+            user-select: none;
         }
+        .action-btn:hover { transform: translateY(-1px); box-shadow: 0 8px 20px rgba(0,0,0,0.28); }
+        .action-btn:active { transform: translateY(0); }
+        .action-btn:disabled { opacity: 0.6; cursor: not-allowed; }
+
+        .status-badge {
+            display: inline-block;
+            padding: 6px 10px;
+            border-radius: 999px;
+            font-size: 0.82em;
+            margin-left: 12px;
+            border: 1px solid var(--card-border);
+        }
+        .status-idle { background: rgba(255,255,255,0.06); color: var(--text-secondary); }
+        .status-running { background: rgba(0, 204, 255, 0.18); color: var(--text-primary); }
+        .status-done { background: rgba(0, 255, 136, 0.18); color: var(--text-primary); }
     </style>
 </head>
 <body>
@@ -232,12 +262,12 @@
 
     <div class="data-grid">
         <!-- Multi-turn Counter -->
-		<div class="data-card">
-			<div class="card-title">Multi-turn Counter</div>
-			<div class="data-value" id="multiturn-value">--</div>
-			<div class="data-unit">Turns</div>
-			<div class="error-message" id="multiturn-error"></div>
-		</div>
+        <div class="data-card">
+            <div class="card-title">Multi-turn Counter</div>
+            <div class="data-value" id="multiturn-value">--</div>
+            <div class="data-unit">Turns</div>
+            <div class="error-message" id="multiturn-error"></div>
+        </div>
 
         <!-- Angle Display -->
         <div class="data-card">
@@ -286,6 +316,20 @@
             <div class="data-value" id="extra-value">--</div>
             <div class="data-unit">Celsius (°C)</div>
             <div class="error-message" id="extra-error"></div>
+        </div>
+
+        <!-- Online Calibration -->
+        <div class="data-card">
+            <div class="card-title">Online Calibration</div>
+            <div>
+                <button id="calib-button" class="action-btn">Start Calibration</button>
+                <span id="calib-status" class="status-badge status-idle">Idle</span>
+            </div>
+            <div class="progress-container">
+                <div class="progress-bar"><div id="calib-progress-fill" class="progress-fill"></div></div>
+                <div id="calib-progress-text" class="progress-text">0%</div>
+            </div>
+            <div class="error-message" id="calib-error"></div>
         </div>
     </div>
 
@@ -410,14 +454,24 @@
             if (!isConnected) return;
 
             try {
+                // Calibration status
+                try {
+                    const calDone = await readVariable('fm_cal_done', 'uint', 1);
+                    const calProg = await readVariable('fm_cal_progress', 'uint', 2);
+                    updateCalibrationUI(calDone, calProg);
+                    document.getElementById('calib-error').textContent = '';
+                } catch (error) {
+                    document.getElementById('calib-error').textContent = 'Read failed: ' + error.message;
+                }
+
                 // Read multi-turn counter (assuming uint type)
-				try {
-					const multiturn = await readVariable('encoder_result.turns', 'int', 4);
-					document.getElementById('multiturn-value').textContent = multiturn;
-					document.getElementById('multiturn-error').textContent = '';
-				} catch (error) {
-					document.getElementById('multiturn-error').textContent = 'Read failed: ' + error.message;
-				}
+                try {
+                    const multiturn = await readVariable('encoder_result.turns', 'int', 4);
+                    document.getElementById('multiturn-value').textContent = multiturn;
+                    document.getElementById('multiturn-error').textContent = '';
+                } catch (error) {
+                    document.getElementById('multiturn-error').textContent = 'Read failed: ' + error.message;
+                }
 
                 // Read angle value (float type)
                 try {
@@ -479,6 +533,7 @@
         document.addEventListener('DOMContentLoaded', function() {
             console.log("Page loaded, initializing PCM...");
             initializePCM();
+            document.getElementById('calib-button').addEventListener('click', startCalibration);
         });
 
         // Cleanup on page unload
@@ -487,6 +542,50 @@
                 pcm.Shutdown();
             }
         });
+
+        async function startCalibration() {
+            const btn = document.getElementById('calib-button');
+            const status = document.getElementById('calib-status');
+            const fill = document.getElementById('calib-progress-fill');
+            const text = document.getElementById('calib-progress-text');
+            try {
+                if (!pcm || !isConnected) throw new Error('Not connected');
+                btn.disabled = true;
+                status.textContent = 'Starting';
+                status.className = 'status-badge status-running';
+                fill.style.width = '0%';
+                text.textContent = '0%';
+                await pcm.WriteUIntVariable('fm_cal_enable', 1, 1);
+            } catch (err) {
+                document.getElementById('calib-error').textContent = 'Start failed: ' + err.message;
+                btn.disabled = false;
+                status.textContent = 'Idle';
+                status.className = 'status-badge status-idle';
+            }
+        }
+
+        function updateCalibrationUI(done, progress) {
+            const btn = document.getElementById('calib-button');
+            const status = document.getElementById('calib-status');
+            const fill = document.getElementById('calib-progress-fill');
+            const text = document.getElementById('calib-progress-text');
+            const p = Math.max(0, Math.min(100, Number(progress) || 0));
+            fill.style.width = p + '%';
+            text.textContent = p + '%';
+            if (Number(done) === 1) {
+                status.textContent = 'Done';
+                status.className = 'status-badge status-done';
+                btn.disabled = false;
+            } else if (p > 0 && p < 100) {
+                status.textContent = 'Calibrating';
+                status.className = 'status-badge status-running';
+                btn.disabled = true;
+            } else {
+                status.textContent = 'Idle';
+                status.className = 'status-badge status-idle';
+                btn.disabled = false;
+            }
+        }
     </script>
 </body>
 </html>

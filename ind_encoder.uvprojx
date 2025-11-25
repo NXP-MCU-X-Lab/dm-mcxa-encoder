@@ -771,11 +771,6 @@
               <FilePath>.\source\app_encoder.c</FilePath>
             </File>
             <File>
-              <FileName>board.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>.\source\board.c</FilePath>
-            </File>
-            <File>
               <FileName>clock_config.c</FileName>
               <FileType>1</FileType>
               <FilePath>.\source\clock_config.c</FilePath>

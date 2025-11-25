@@ -12,7 +12,6 @@
 #include "fsl_lpuart_edma.h"
 #include "fsl_edma.h"
 #include "fsl_debug_console.h"
-#include "board.h"
 #include "app_uart_dma.h"
 
 #include <stdio.h>

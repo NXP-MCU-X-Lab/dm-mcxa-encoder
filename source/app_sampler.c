@@ -103,7 +103,7 @@ void CTIMER1_IRQHandler(void)
     /* Clear match0 interrupt flag */
     CTIMER_ClearStatusFlags(SAMPLER_CTIMER, kCTIMER_Match0Flag);
     
-    TEST_PIN_Set();
+    TestPin_Set();
     
     adc_sample_result_t raw = adc_read();
     
@@ -113,5 +113,5 @@ void CTIMER1_IRQHandler(void)
     encoder_process(raw.opamp0_out, raw.opamp1_out, &enc);
     s_last_encoder = enc;
     
-    TEST_PIN_Clear();
+    TestPin_Clear();
 }

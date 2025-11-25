@@ -35,7 +35,6 @@
  * Variables
  ******************************************************************************/
 
-static adc_sampling_mode_t g_adc_mode = ADC_MODE_OUTPUT_ONLY;
 static uint32_t g_sample_counter = 0;
 static float g_last_temperature = 0;
 
@@ -113,28 +112,15 @@ static void adc_configure_sequences(void)
 {
     lpadc_conv_trigger_config_t triggerConfig;
     
-    if (g_adc_mode == ADC_MODE_FULL_DEBUG) {
-        /* Full Debug Mode: 6 Channels (no temperature) */
-        adc_config_signal_cmd(ADC0, ADC_CMD_NORMAL_SEQ, ADC_CH_OPAMP0_INP, ADC_CMD_TEMP_SEQ_CH0);
-        adc_config_signal_cmd(ADC0, ADC_CMD_TEMP_SEQ_CH0, ADC_CH_OPAMP1_INP, ADC_CMD_TEMP_SEQ_CH1);
-        adc_config_signal_cmd(ADC0, ADC_CMD_TEMP_SEQ_CH1, ADC_CH_OPAMP0_OUT, 0U);
-        
-        adc_config_signal_cmd(ADC1, ADC_CMD_NORMAL_SEQ, ADC_CH_OPAMP0_INN, ADC_CMD_TEMP_SEQ_CH0);
-        adc_config_signal_cmd(ADC1, ADC_CMD_TEMP_SEQ_CH0, ADC_CH_OPAMP1_INN, ADC_CMD_TEMP_SEQ_CH1);
-        adc_config_signal_cmd(ADC1, ADC_CMD_TEMP_SEQ_CH1, ADC_CH_OPAMP1_OUT, 0U);
-        
-    } else {
-        /* Output Only Mode with Temperature Support */
-        
-        /* Normal Sequence: OUT0, OUT1 */
-        adc_config_signal_cmd(ADC0, ADC_CMD_NORMAL_SEQ, ADC_CH_OPAMP0_OUT, 0U);
-        adc_config_signal_cmd(ADC1, ADC_CMD_NORMAL_SEQ, ADC_CH_OPAMP1_OUT, 0U);
-        
-        /* Temperature Sequence: OUT0 -> TEMP(�4) -> OUT1 */
-        adc_config_signal_cmd(ADC0, ADC_CMD_TEMP_SEQ_CH0, ADC_CH_OPAMP0_OUT, ADC_CMD_TEMP_SEQ_CH1);
-        adc_config_temp_cmd(ADC0, ADC_CMD_TEMP_SEQ_CH1, 0U);  /* loopCount=3 ? 4 samples */
-        adc_config_signal_cmd(ADC1, ADC_CMD_TEMP_SEQ_CH0, ADC_CH_OPAMP1_OUT, 0U);
-    }
+    /* Output Only Mode with Temperature Support */
+    /* Normal Sequence: OUT0, OUT1 */
+    adc_config_signal_cmd(ADC0, ADC_CMD_NORMAL_SEQ, ADC_CH_OPAMP0_OUT, 0U);
+    adc_config_signal_cmd(ADC1, ADC_CMD_NORMAL_SEQ, ADC_CH_OPAMP1_OUT, 0U);
+    
+    /* Temperature Sequence: OUT0 -> TEMP(4) -> OUT1 */
+    adc_config_signal_cmd(ADC0, ADC_CMD_TEMP_SEQ_CH0, ADC_CH_OPAMP0_OUT, ADC_CMD_TEMP_SEQ_CH1);
+    adc_config_temp_cmd(ADC0, ADC_CMD_TEMP_SEQ_CH1, 0U);
+    adc_config_signal_cmd(ADC1, ADC_CMD_TEMP_SEQ_CH0, ADC_CH_OPAMP1_OUT, 0U);
     
     /* Configure Triggers */
     LPADC_GetDefaultConvTriggerConfig(&triggerConfig);
@@ -223,9 +209,8 @@ static inline float adc_raw_to_voltage(uint16_t raw_value)
  * Public Functions
  ******************************************************************************/
 
-void adc_init(adc_sampling_mode_t mode)
+void adc_init(void)
 {
-    g_adc_mode = mode;
     g_sample_counter = 0;
     
     /* Release peripheral reset */
@@ -244,16 +229,11 @@ void adc_init(adc_sampling_mode_t mode)
     adc_configure_sequences();
     
     /* Print configuration */
-    const char *modeStr = (mode == ADC_MODE_OUTPUT_ONLY) ? "Output Only (2ch)" :
-                          (mode == ADC_MODE_FULL_DEBUG) ? "Full Debug (6ch)" :
-                          "Calibration (2ch)";
-    
     PRINTF("=== Magnetic Encoder ADC Init ===\r\n");
     PRINTF("ADC0 clock: %d Hz\r\n", CLOCK_GetAdcClkFreq(0));
     PRINTF("ADC1 clock: %d Hz\r\n", CLOCK_GetAdcClkFreq(1));
     PRINTF("Signal average: 16x, Resolution: 16-bit\r\n");
     PRINTF("Temperature average: 128x (every %d samples)\r\n", TEMP_SAMPLE_INTERVAL);
-    PRINTF("Sampling mode: %s\r\n", modeStr);
     PRINTF("OPAMP0: INP(P2_12) INN(P2_13) OUT(P2_15)\r\n");
     PRINTF("OPAMP1: INP(P2_16) INN(P2_17) OUT(P2_19)\r\n");
 }
@@ -264,46 +244,25 @@ adc_sample_result_t adc_read(void)
     bool sample_temp = false;
     
     /* Determine if temperature should be sampled */
-    if (g_adc_mode != ADC_MODE_FULL_DEBUG) {
-        g_sample_counter++;
-        if (g_sample_counter >= TEMP_SAMPLE_INTERVAL) {
-            sample_temp = true;
-            g_sample_counter = 0;
-            
-            /* Switch to temperature sequence */
-            lpadc_conv_trigger_config_t triggerConfig;
-            LPADC_GetDefaultConvTriggerConfig(&triggerConfig);
-            triggerConfig.targetCommandId = ADC_CMD_TEMP_SEQ_CH0;
-            triggerConfig.enableHardwareTrigger = true;
-            LPADC_SetConvTriggerConfig(ADC0, ADC_TRIGGER_ID, &triggerConfig);
-            LPADC_SetConvTriggerConfig(ADC1, ADC_TRIGGER_ID, &triggerConfig);
-        }
+    g_sample_counter++;
+    if (g_sample_counter >= TEMP_SAMPLE_INTERVAL) {
+        sample_temp = true;
+        g_sample_counter = 0;
+        
+        /* Switch to temperature sequence */
+        lpadc_conv_trigger_config_t triggerConfig;
+        LPADC_GetDefaultConvTriggerConfig(&triggerConfig);
+        triggerConfig.targetCommandId = ADC_CMD_TEMP_SEQ_CH0;
+        triggerConfig.enableHardwareTrigger = true;
+        LPADC_SetConvTriggerConfig(ADC0, ADC_TRIGGER_ID, &triggerConfig);
+        LPADC_SetConvTriggerConfig(ADC1, ADC_TRIGGER_ID, &triggerConfig);
     }
     
     /* Trigger conversion */
     __SEV();
     
     /* Read results based on mode */
-    if (g_adc_mode == ADC_MODE_FULL_DEBUG) {
-        /* Full Debug: 6 channels (no temperature) */
-        result.opamp0_inp = adc_read_fifo(ADC0);
-        result.opamp1_inp = adc_read_fifo(ADC0);
-        result.opamp0_out = adc_read_fifo(ADC0);
-        result.opamp0_inn = adc_read_fifo(ADC1);
-        result.opamp1_inn = adc_read_fifo(ADC1);
-        result.opamp1_out = adc_read_fifo(ADC1);
-        
-        /* Convert to voltage */
-        result.opamp0_inp_voltage = adc_raw_to_voltage(result.opamp0_inp);
-        result.opamp0_inn_voltage = adc_raw_to_voltage(result.opamp0_inn);
-        result.opamp0_out_voltage = adc_raw_to_voltage(result.opamp0_out);
-        result.opamp1_inp_voltage = adc_raw_to_voltage(result.opamp1_inp);
-        result.opamp1_inn_voltage = adc_raw_to_voltage(result.opamp1_inn);
-        result.opamp1_out_voltage = adc_raw_to_voltage(result.opamp1_out);
-        
-        result.temperature = g_last_temperature;
-        
-    } else if (sample_temp) {
+    if (sample_temp) {
         /* Temperature sequence: OUT0 -> [TEMP�4] -> OUT1 */
         result.opamp0_out = adc_read_fifo(ADC0);
         

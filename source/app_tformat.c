@@ -15,7 +15,6 @@
 #include "fsl_lpuart.h"
 #include "fsl_lpuart_edma.h"
 #include "fsl_edma.h"
-#include "board.h"
 #include "app_tformat.h"
 #include "app_sampler.h"
 #include "app_encoder.h"
