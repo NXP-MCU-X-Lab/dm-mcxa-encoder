@@ -1,281 +1,101 @@
-# NXP MCXA344 Inductive Position Encoder
+# NXP MCXA344 电感式位置编码器
 
-A high-precision inductive position encoder implementation for NXP MCXA344 microcontroller, featuring advanced signal processing, automatic calibration, and real-time angle computation.
+高精度电感式位置编码器，基于 NXP MCXA344（Cortex‑M33）实现。系统对电感传感器的差分 sin/cos 信号进行校准与角度计算，支持多圈计数，并提供 FreeMASTER 实时可视化界面。
 
-## Table of Contents
-- [Overview](#overview)
-- [Hardware Architecture](#hardware-architecture)
-- [Software Architecture](#software-architecture)
-- [Key Features](#key-features)
-- [Implementation Details](#implementation-details)
-- [Getting Started](#getting-started)
-- [Usage Guide](#usage-guide)
-- [Development Tools](#development-tools)
-- [Performance Specifications](#performance-specifications)
-- [Troubleshooting](#troubleshooting)
+![](./img/3.png)
 
-## Overview
+[TOC]
 
-This project implements a complete inductive encoder system using the NXP MCXA34x ARM Cortex-M33 microcontroller. The system processes differential sin/cos signals from inductive sensors to provide high-resolution angular position measurements with multi-turn capability.
+## 概览
+- 传感器：差分电感式 sin/cos 输出，片上 OPAMP 调理。
+- 采样：双 16 位 ADC 同步采样，CTIMER1 周期中断驱动。
+- 计算：2×2 椭圆校正 + 高精度 `atan2` + 多圈展开 + 自适应滤波。
+- 可视化：FreeMASTER 桌面 + Web 前端（`freemaster/index.html`）。
 
-### System Components
-- **MCXA344 Microcontroller**: ARM Cortex-M33 with dual 16-bit ADCs
-- **Inductive Sensor Interface**: Dual OPAMP channels for differential signal conditioning
-- **Signal Processing**: Advanced calibration and angle computation algorithms
-- **Real-time Output**: UART streaming with configurable data formats
-
-## Hardware Architecture
-
-### Pin Configuration
+## 硬件结构框图
 ```
-OPAMP0 (Sin Channel):
-- OPAMP0_INP  → P2_12 (ADC0_A5)
-- OPAMP0_INN  → P2_13 (ADC1_A5)  
-- OPAMP0_OUT  → P2_15 (ADC0_A2)
+[Inductive Sensor]
+    └─> OPAMP0 (Sin) ──┐
+                        ├─> ADC0/ADC1 同步采样 ──> CTIMER1 周期 ISR (10kHz)
+    └─> OPAMP1 (Cos) ──┘                                  │
+                                                          ├─ 2×2 椭圆校正（去中心+线性变换）
+                                                          ├─ 幅值门限（magnitude ≥ 0.6）
+                                                          ├─ 角度计算（高精度 atan2）
+                                                          ├─ 多圈展开（4 电角/机械圈）
+                                                          └─ 自适应滤波/限幅/死区/量化（16bit）
 
-OPAMP1 (Cos Channel):
-- OPAMP1_INP  → P2_16 (ADC0_A6)
-- OPAMP1_INN  → P2_17 (ADC1_A6)
-- OPAMP1_OUT  → P2_19 (ADC1_A2)
-
-Temperature Sensor:
-- Temperature → ADC0_A26
-
-Debug Interface:
-- UART Debug  → LPUART2 (2 Mbps)
+                                      ┌─ LPUART0 @115200（FreeMASTER PC）
+[MCXA344] ──> Encoder Result/ADC ─────┤
+                                      └─ LPUART2（可选：485/T‑format 从机示例）
 ```
 
-### Hardware Features
-- **Dual 16-bit ADCs**: Independent ADC0 and ADC1 for simultaneous sampling
-- **OPAMP Integration**: On-chip operational amplifiers for signal conditioning
+![](./img/2.png)
 
-## Software Architecture
+![](./img/1.png)
 
-### Module Structure
+### 引脚与接口（摘要）
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│                        Application Layer                     │
-├─────────────────────────────────────────────────────────────┤
-│  main.c      │  Calibration  │  User Interface │  Debug    │
-├─────────────────────────────────────────────────────────────┤
-│                    Application Services                      │
-├─────────────────────────────────────────────────────────────┤
-│  app_encoder │  app_adc       │  app_sampler    │  app_timer│
-├─────────────────────────────────────────────────────────────┤
-│                    Hardware Abstraction Layer(SDK)          │
-├─────────────────────────────────────────────────────────────┤
-│  fsl_lpadc   │  fsl_opamp     │  fsl_ctimer     │  fsl_clock│
-└─────────────────────────────────────────────────────────────┘
-```
+- OPAMP0_OUT → P2_15 (`ADC0_A2`)，OPAMP1_OUT → P2_19 (`ADC1_A2`)
+- 温度传感器 → `ADC0_A26`
+- FreeMASTER/调试 UART：`LPUART0 @ 115200`（`Hardware_DebugConsoleInit`）
+- 可选 RS‑485 接口：`LPUART2`（`UART485_SetTxRts`），从机示例见 `app_tformat.*`
 
-### Core Modules
+## 算法原理
+- 信号模型与畸变来源
+  - 原始：`sin = A_s·sin(θ) + o_s`，`cos = A_c·cos(θ) + o_c`。
+  - 受幅值不一致、相位偏差、交叉耦合影响，轨迹在 `(sin, cos)` 平面呈椭圆而非单位圆。
+- 去中心与线性变换（2×2）
+  - 以样本均值 `(sin_center, cos_center)` 去除 DC 偏置，得到居中向量 `x`。
+  - 对居中数据估计协方差矩阵 `Σ`，特征分解得到主轴与尺度；构造 2×2 变换 `T` 使 `T·x` 近似单位圆。
+  - 实现细节：对小样本或非法数值回退到最小/最大幅值标定；保证 `det(T) > 0` 的右手坐标系。
+- 幅值门限与径向归一
+  - 计算变换后的幅值 `m = sqrt(s'^2 + c'^2)`，当 `m < 0.6` 时冻结输出以抑制低信噪比抖动。
+  - 正常工作时对 `(s', c')` 做径向归一，提升角度稳定性。
+- 角度计算与数值稳定
+  - 使用片上 MAU 的高精度 `atan2`（`mau_atan2.*`），计算电角 `θ_e ∈ [0, 360)`。
+- 多圈展开与机械角
+  - 配置 `ENCODER_ELEC_CYCLES_PER_REV = 4`，跟踪电角穿越次数，得到机械角与多圈计数。
+  - 支持方向切换与零位设置（tare/clear），零位仅影响显示角不影响圈计数。
+- 自适应滤波、限速与死区
+  - 采样周期 `Ts = 0.0001 s`（10kHz），采用简洁的 α‑β 跟踪器，随速度自适应抑制抖动。
+  - 新息限幅（例如 20°）、最大角速度限制、输出死区与 16 位量化（0.0055°/count）。
+- 温度采样与补偿
+  - 每 `TEMP_SAMPLE_INTERVAL = 10k` 次采样读取一次温度，预留热漂补偿接口。
 
-#### 1. ADC Driver (`app_adc.c/h`)
-- **Dual ADC Management**: Coordinates ADC0 and ADC1 for synchronized sampling
-- **Multiple Sampling Modes**: Output-only, full debug, and calibration modes
-- **Temperature Integration**: Automatic temperature sampling every 10,000 readings
-- **Signal Conditioning**: Hardware averaging (16x for signals, 128x for temperature)
+## 快速上手
+- 硬件准备
+  - MCXA344 开发板、电感式传感器差分接入、3.3V 供电。
+  - 连接 `LPUART0` 至 PC（115200），可选连接 `LPUART2`（485）。
+- 软件构建（Keil MDK‑ARM）
+  - 打开 `ind_encoder.uvprojx` → 选择目标 → 编译→ 下载。
+- 上电启动与默认模式
+  - 默认运行 FreeMASTER 模式（`main.c` 中 `run_freemaster_mode()`）。
+  - 系统时钟打印后启动采样（CTIMER1 10kHz）。
 
-#### 2. Encoder Processing (`app_encoder.c/h`)
-- **Advanced Calibration**: 2×2 matrix transformation for ellipse correction
-- **Signal Quality Monitoring**: Magnitude-based gating with 0.6 threshold
-- **Phase Unwrapping**: Multi-turn capability with electrical cycle tracking
-- **Adaptive Filtering**: Velocity-dependent jitter suppression
-- **High Resolution**: 16-bit angle quantization (65,536 counts per revolution)
+## 使用与调试（含 FreeMASTER）
+- 连接参数
+  - `LPUART0 @ 115200, 8N1`，无流控。
+- FreeMASTER 桌面端
+  - 安装 NXP FreeMASTER（Windows）。
+  - 选择串口（LPUART0 对应 COM），波特率设为 `115200`，连接设备。
+  - 使用 TSA 自动映射变量（项目已开启 TSA），或加载 `freemaster/digital_encoder.pmpx`。
+- Web 前端（`freemaster/index.html`）
+  - 页面会通过 WebSocket 连接到 FreeMASTER，显示：角度/计数/转速/温度、多圈计数、校准矩阵。
+  - 操作：
+    - `Start Calibration`：触发在线椭圆拟合并自动应用；进度实时显示。
+    - `Zero Here / Clear Zero`：设置或清除零位。
+    - `Direction`：勾选切换正/反方向（内部用 `fm_direction`）。
 
-#### 3. Sampling Engine (`app_sampler.c/h`)
-- **CTIMER1-Based ISR**: Precise 1kHz sampling interrupt
-- **Thread-Safe Operation**: Atomic data copying with interrupt protection
-- **Performance Monitoring**: ISR execution time tracking
-- **Non-Intrusive Design**: Independent from system timing utilities
+## 性能规格
+- 采样/更新率：`10kHz`（`SAMPLE_FRQ = 10*1000`）。
+- ADC 分辨率：16 位；信号通道硬件平均 16×。
+- 角度分辨率：16 位（约 0.0055°/count）。
+- 多圈范围：`int32_t` 计数（±2,147,483,647）。
 
-#### 4. Calibration System
-- **Auto-Calibration**: Complete ellipse fitting algorithm
-- **Manual Calibration**: Min/max based calibration support
-- **Zero Position Setting**: Flexible zero reference configuration
-- **Direction Control**: Reversible rotation direction
-
-## Key Features
-
-### Signal Processing Pipeline
-1. **Raw ADC Sampling**: Dual-channel synchronized acquisition
-2. **Calibration Transformation**: 2×2 matrix correction for sensor imperfections
-3. **Signal Quality Assessment**: Magnitude-based validity checking
-4. **Angle Computation**: High-precision arctangent calculation
-5. **Phase Unwrapping**: Multi-turn tracking with drift compensation
-6. **Output Filtering**: Adaptive jitter suppression based on velocity
-
-### Advanced Calibration
-- **Ellipse Fitting**: Statistical analysis of sensor characteristics
-- **Temperature Compensation**: Thermal drift correction
-- **Amplitude Normalization**: Consistent signal scaling
-- **Center Point Correction**: DC offset elimination
-
-## Implementation Details
-
-### Encoder Configuration
-```c
-#define ENCODER_ELEC_CYCLES_PER_REV    4    // Electrical cycles per revolution
-#define ENCODER_RESOLUTION_BITS       16    // 16-bit angle resolution
-#define ENCODER_MIN_MAG_THRESHOLD     0.6f  // Signal quality threshold
-```
-
-### Sampling Configuration
-```c
-#define SAMPLE_FRQ          (10*1000)        // 1kHz sampling rate
-#define TEMP_SAMPLE_INTERVAL (10*1000)     // Temperature every 10k samples
-#define ADC_HW_AVG_SIGNAL   kLPADC_HardwareAverageCount16
-#define ADC_HW_AVG_TEMP     kLPADC_HardwareAverageCount128
-```
-
-### Clock Configuration
-- **Core Clock**: 96MHz from FRO_HF
-- **ADC Clock**: 32MHz (divided by 3)
-- **CTIMER Clock**: 1MHz (divided by 4)
-- **UART Baud**: 2Mbps for high-speed data streaming
-
-## Getting Started
-
-### Prerequisites
-- NXP MCXA344 development board
-- Inductive position sensor with differential outputs
-- Keil MDK-ARM development environment
-- Serial terminal software (TeraTerm, PuTTY, etc.)
-
-### Hardware Setup
-1. Connect inductive sensor to designated pins (P2_12-P2_19)
-2. Ensure proper power supply (3.3V)
-3. Connect debug UART to host computer
-4. Install jumpers for OPAMP configuration if needed
-
-### Software Build
-1. Open `ind_encoder.uvprojx` in Keil MDK-ARM
-2. Select appropriate target configuration
-3. Build the project (F7)
-4. Download to target device
-
-## Usage Guide
-
-### Serial Interface
-
-#### Connection Parameters
-- **Baud Rate**: 2,000,000 bps
-- **Data Bits**: 8
-- **Stop Bits**: 1
-- **Parity**: None
-- **Flow Control**: None
-
-#### Startup Sequence
-```
-=== System Clocks ===
-Core Clock:    96000000 Hz (96 MHz)
-FRO_HF:        96000000 Hz (96 MHz)
-FRO_HF_DIV:    48000000 Hz (48 MHz)
-
-=== Select ADC Sampling Mode (3s timeout) ===
-1: Normal Mode (OPAMP outputs only, 2ch)
-2: Debug Mode (All 6 channels: INP, INN, OUT)
-3: Auto Calibration (OPAMP outputs only, 2ch)
-```
-
-#### Operating Modes
-
-**Mode 1: Normal Operation**
-- Samples OPAMP0_OUT and OPAMP1_OUT only
-- Optimal performance for position tracking
-- Temperature compensation included
-
-**Mode 2: Debug Mode**
-- Samples all 6 channels (INP, INN, OUT for both OPAMPs)
-- Comprehensive signal analysis
-- Useful for sensor characterization
-
-**Mode 3: Auto Calibration**
-
-- Automatic sensor calibration routine
-- Ellipse fitting algorithm
-- Zero position setting
-
-#### Data Output Format
-```
-Angle:   123.45 deg | Counts:  54321 | Turns:    -1 | Sin: 34567 | Cos: 45678
-```
-
-### Calibration Procedure
-
-#### Automatic Calibration
-1. Select Mode 3 at startup
-2. Rotate encoder slowly for one full revolution
-3. Press any key to start calibration
-4. System will collect 300,000 samples over 2048 points
-5. Position mechanical zero and press any key
-6. Calibration completes automatically
-
-#### Manual Calibration
-Use the encoder API functions for programmatic calibration:
-```c
-encoder_calibrate(sin_min, sin_max, cos_min, cos_max);
-encoder_apply_calibration(&custom_calibration);
-encoder_set_zero_deg(zero_angle);
-```
-
-### FreeMASTER Integration
-
-The project includes FreeMASTER support for real-time debugging and visualization:
-
-#### FreeMASTER Setup
-1. Open `freemaster\index.html` in web browser
-2. Configure serial connection to match UART settings
-3. Load the project map file
-4. Enable real-time data monitoring
-
-#### Available Variables
-- `encoder_result.angle_deg`: Mechanical angle (degrees)
-- `encoder_result.angle_counts`: Quantized angle (counts)
-- `encoder_result.turns`: Turn counter
-- `encoder_result.magnitude`: Signal magnitude
-- `adc_result.temperature`: Temperature reading
-
-#### Oscilloscope Features
-- Real-time angle plotting
-- Signal waveform visualization
-- Calibration parameter monitoring
-- Performance metrics display
-
-## Development Tools
-
-### Keil MDK-ARM
-- Project file: `ind_encoder.uvprojx`
-- Target device: MCXA343VLH
-- Compiler: ARM Compiler 6.23
-- Optimization: Speed optimized
-
-### Debugging Features
-- **Test Pin**: GPIO toggle for ISR timing measurement
-- **Performance Metrics**: ISR execution time tracking
-- **Error Handling**: Comprehensive fault detection
-- **Serial Debug**: Extensive diagnostic output
-
-### Code Conventions
-- **Naming**: snake_case for C functions and variables
-- **Prefixes**: Module-specific prefixes (`adc_*`, `encoder_*`, `sampler_*`)
-- **Globals**: Static scope preferred, minimal global state
-- **Documentation**: Comprehensive API documentation
-
-## Performance Specifications
-
-### Sampling Performance
-- **Update Rate**: 10kHz
-- **ADC Resolution**: 16-bit
-- **Angle Resolution**: 16-bit (0.0055° per count)
-- **Multi-turn Range**: ±2,147,483,647 turns
-
-
-## Support
-
-For technical support, please refer to:
-- NXP MCXA344 documentation
-- Project source code and comments
-- FreeMASTER user guide
-- Keil MDK-ARM documentation
+## 参考变量（FreeMASTER）
+- `encoder_result.angle_deg`：机械角（度）。
+- `encoder_result.angle_counts`：量化角（0..65535）。
+- `encoder_result.turns`：多圈计数。
+- `encoder_result.speed_rpm / speed_dps`：转速（RPM/度每秒）。
+- `encoder_result.magnitude`：信号幅值质量指标。
+- `adc_result.temperature`：温度（°C）。

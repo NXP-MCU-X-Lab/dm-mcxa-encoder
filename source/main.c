@@ -12,14 +12,11 @@
 #include "app_encoder.h"
 #include "hardware_init.h"
 #include "mcux_config.h"
-#include "mau_atan2_test.h"
-#include "app_uart_dma.h"
 #include "app_tformat.h"
 
 #include "freemaster.h"
 #include "freemaster_serial_lpuart.h"
 #include "freemaster_example.h"
-
 
 
 #define SAMPLE_FRQ          (10*1000)
@@ -36,7 +33,7 @@ encoder_result_t encoder_result;
 static void perform_encoder_calibration(void);
 static void stream_encoder_loop(void);
 
-#define CAL_TOTAL_ITERATIONS    (300000U)
+#define CAL_TOTAL_ITERATIONS    (30000U)
 #define CAL_TARGET_SAMPLES      (2048U)
 #define CAL_PROGRESS_INTERVAL   (1000U)
 #define CAL_ZERO_AVG_SAMPLES    (128U)
@@ -443,6 +440,23 @@ static void stream_encoder_loop(void)
             fm_cal_enable = 0;
             perform_encoder_calibration_fm();
         }
+        if (fm_reset_ctrl != 0u) {
+            uint8_t cmd = fm_reset_ctrl;
+            fm_reset_ctrl = 0;
+            if (cmd == 1u) {
+                NVIC_SystemReset();
+            }
+        }
+        if (fm_zero_ctrl != 0u) {
+            uint8_t z = fm_zero_ctrl;
+            fm_zero_ctrl = 0u;
+            if (z == 1u) {
+                encoder_tare_zero();
+            } else if (z == 2u) {
+                encoder_clear_zero();
+            }
+        }
+        encoder_set_direction(fm_direction ? -1 : +1);
         sampler_copy_latest(&encoder_result);
         sampler_copy_latest_raw(&adc_result);
         SDK_DelayAtLeastUs(10000, CLOCK_GetFreq(kCLOCK_CoreSysClk));

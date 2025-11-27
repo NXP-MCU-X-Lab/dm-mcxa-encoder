@@ -1,4 +1,4 @@
-// app_encoder.h - Updated
+// app_encoder.h - Fixed version
 #ifndef APP_ENCODER_H
 #define APP_ENCODER_H
 
@@ -24,8 +24,8 @@
 #define ENCODER_SAMPLE_PERIOD_S 0.0001f
 
 // Simple alpha-beta filter parameters for angle tracking
-#define ENCODER_AB_ALPHA 0.05f
-#define ENCODER_AB_BETA  0.001f
+#define ENCODER_AB_ALPHA 0.01f
+#define ENCODER_AB_BETA  (ENCODER_AB_ALPHA * ENCODER_AB_ALPHA / 2.0f)
 
 // Max allowed mechanical angular speed for rate limiting (deg/s)
 #define ENCODER_OMEGA_MAX_DPS 7200.0f
@@ -35,6 +35,9 @@
 
 // Output deadband in counts (N-bit resolution); small changes are held
 #define ENCODER_OUTPUT_DEADBAND_COUNTS 2
+
+// Angle deadband in degrees; small angle changes are held
+#define ENCODER_ANGLE_DEADBAND_DEG 0.1f  // ~0.1° deadband
 
 // ========== Data Structures ==========
 typedef struct {
@@ -51,9 +54,11 @@ typedef struct {
     
     // Angle outputs
     float elec_angle_deg;       // Electrical angle per cycle [0, 360)
-    float angle_deg;            // Mechanical angle [0, 360)
+    float angle_deg;            // Mechanical angle [0, 360) after zero/direction
     int32_t turns;              // Mechanical turn count
     uint16_t angle_counts;      // Quantized mechanical angle (N-bit)
+    float speed_dps;            // Mechanical angular speed (deg/s)
+    float speed_rpm;            // Mechanical speed (RPM)
 } encoder_result_t;
 
 typedef struct {
@@ -93,6 +98,7 @@ void encoder_apply_calibration(const encoder_calibration_t *cal);
 /**
  * @brief Set absolute zero position.
  * @param zero_deg Zero position in degrees; internally normalized to [0, 360).
+ * @note This is a display zero - does not affect turn counting.
  */
 void encoder_set_zero_deg(float zero_deg);
 
@@ -139,5 +145,6 @@ uint8_t  encoder_get_id(void);
 uint8_t  encoder_get_status(void);
 uint8_t  encoder_get_alarm(void);
 
-#endif // APP_ENCODER_H
+extern encoder_calibration_t s_calibration;
 
+#endif // APP_ENCODER_H

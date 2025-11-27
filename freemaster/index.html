@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>FRDM-MCXE31B Digital Encoder Demo</title>
+    <title>MCXA3XX Digital Encoder Demo</title>
     <style>
         * {
             margin: 0;
@@ -252,6 +252,16 @@
         .status-idle { background: rgba(255,255,255,0.06); color: var(--text-secondary); }
         .status-running { background: rgba(0, 204, 255, 0.18); color: var(--text-primary); }
         .status-done { background: rgba(0, 255, 136, 0.18); color: var(--text-primary); }
+        .toggle {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            margin-top: 10px;
+        }
+        .toggle input {
+            width: 40px;
+            height: 20px;
+        }
     </style>
 </head>
 <body>
@@ -310,6 +320,16 @@
             <div class="error-message" id="counts-error"></div>
         </div>
 
+        <!-- Motor Speed -->
+        <div class="data-card">
+            <div class="card-title">Motor Speed</div>
+            <div class="data-value" id="speed-rpm-value">--</div>
+            <div class="data-unit">RPM</div>
+            <div class="data-value" style="font-size:1.4em" id="speed-dps-value">--</div>
+            <div class="data-unit">deg/s</div>
+            <div class="error-message" id="speed-error"></div>
+        </div>
+
         <!-- Temperature Data -->
         <div class="data-card">
             <div class="card-title">Temperature</div>
@@ -331,10 +351,38 @@
             </div>
             <div class="error-message" id="calib-error"></div>
         </div>
+        <!-- Ellipse Calibration -->
+        <div class="data-card">
+            <div class="card-title">Ellipse Calibration</div>
+            <div class="data-value" style="font-size:1.2em" id="cal-sin-center">sin_center: --</div>
+            <div class="data-value" style="font-size:1.2em" id="cal-cos-center">cos_center: --</div>
+            <div class="data-unit">Transform Matrix</div>
+            <div class="data-value" style="font-size:1.1em" id="cal-t00">[0,0]: --</div>
+            <div class="data-value" style="font-size:1.1em" id="cal-t01">[0,1]: --</div>
+            <div class="data-value" style="font-size:1.1em" id="cal-t10">[1,0]: --</div>
+            <div class="data-value" style="font-size:1.1em" id="cal-t11">[1,1]: --</div>
+            <div class="error-message" id="cal-view-error"></div>
+        </div>
+        <!-- Encoder Control -->
+        <div class="data-card">
+            <div class="card-title">Encoder Control</div>
+            <div>
+                <button id="zero-here-button" class="action-btn">Zero Here</button>
+                <button id="zero-clear-button" class="action-btn" style="margin-left:8px">Clear Zero</button>
+                <span id="zero-status" class="status-badge status-idle">Idle</span>
+            </div>
+            <div class="toggle">
+                <label for="dir-toggle">Direction</label>
+                <input type="checkbox" id="dir-toggle" />
+                <span id="dir-status" class="status-badge status-idle">Normal</span>
+            </div>
+            <div class="error-message" id="zero-error"></div>
+            <div class="error-message" id="dir-error"></div>
+        </div>
     </div>
 
     <div class="footer">
-        <div>FRDM-MCXE31B Digital Encoder Demo | Last Update: <span id="update-time">--</span></div>
+        <div>MCXA3XX Digital Encoder Demo | Last Update: <span id="update-time">--</span></div>
         <div>Connection Status: <span id="connection-status">Disconnected</span></div>
     </div>
 
@@ -464,6 +512,22 @@
                     document.getElementById('calib-error').textContent = 'Read failed: ' + error.message;
                 }
 
+                try {
+                    const sc = await readVariable('s_calibration.sin_center', 'float', 4);
+                    const cc = await readVariable('s_calibration.cos_center', 'float', 4);
+                    const tf = await pcm.ReadFloatArray('s_calibration.transform', 4);
+                    const arr = tf.data || [];
+                    document.getElementById('cal-sin-center').textContent = 'sin_center: ' + sc.toFixed(3);
+                    document.getElementById('cal-cos-center').textContent = 'cos_center: ' + cc.toFixed(3);
+                    document.getElementById('cal-t00').textContent = '[0,0]: ' + (arr[0] !== undefined ? arr[0].toFixed(6) : '--');
+                    document.getElementById('cal-t01').textContent = '[0,1]: ' + (arr[1] !== undefined ? arr[1].toFixed(6) : '--');
+                    document.getElementById('cal-t10').textContent = '[1,0]: ' + (arr[2] !== undefined ? arr[2].toFixed(6) : '--');
+                    document.getElementById('cal-t11').textContent = '[1,1]: ' + (arr[3] !== undefined ? arr[3].toFixed(6) : '--');
+                    document.getElementById('cal-view-error').textContent = '';
+                } catch (error) {
+                    document.getElementById('cal-view-error').textContent = 'Read failed: ' + error.message;
+                }
+
                 // Read multi-turn counter (assuming uint type)
                 try {
                     const multiturn = await readVariable('encoder_result.turns', 'int', 4);
@@ -502,6 +566,28 @@
                 } catch (error) {
                     document.getElementById('extra-error').textContent = 'Read failed: ' + error.message;
                 }
+
+                try {
+                    const rpm = await readVariable('encoder_result.speed_rpm', 'float', 4);
+                    const dps = await readVariable('encoder_result.speed_dps', 'float', 4);
+                    document.getElementById('speed-rpm-value').textContent = rpm.toFixed(1);
+                    document.getElementById('speed-dps-value').textContent = dps.toFixed(1);
+                    document.getElementById('speed-error').textContent = '';
+                } catch (error) {
+                    document.getElementById('speed-error').textContent = 'Read failed: ' + error.message;
+                }
+
+                try {
+                    const dir = await readVariable('fm_direction', 'uint', 1);
+                    const chk = document.getElementById('dir-toggle');
+                    const status = document.getElementById('dir-status');
+                    chk.checked = Number(dir) ? true : false;
+                    status.textContent = Number(dir) ? 'Inverted' : 'Normal';
+                    status.className = 'status-badge status-idle';
+                    document.getElementById('dir-error').textContent = '';
+                } catch (error) {
+                    document.getElementById('dir-error').textContent = 'Read failed: ' + error.message;
+                }
         
                 // Update timestamp
                 document.getElementById('update-time').textContent = 
@@ -534,6 +620,9 @@
             console.log("Page loaded, initializing PCM...");
             initializePCM();
             document.getElementById('calib-button').addEventListener('click', startCalibration);
+            document.getElementById('zero-here-button').addEventListener('click', zeroHere);
+            document.getElementById('zero-clear-button').addEventListener('click', clearZero);
+            document.getElementById('dir-toggle').addEventListener('change', setDirectionFromToggle);
         });
 
         // Cleanup on page unload
@@ -584,6 +673,60 @@
                 status.textContent = 'Idle';
                 status.className = 'status-badge status-idle';
                 btn.disabled = false;
+            }
+        }
+
+        async function zeroHere() {
+            const btnH = document.getElementById('zero-here-button');
+            const status = document.getElementById('zero-status');
+            try {
+                if (!pcm || !isConnected) throw new Error('Not connected');
+                btnH.disabled = true;
+                status.textContent = 'Zeroing';
+                status.className = 'status-badge status-running';
+                await pcm.WriteUIntVariable('fm_zero_ctrl', 1, 1);
+                status.textContent = 'Done';
+                status.className = 'status-badge status-done';
+            } catch (err) {
+                document.getElementById('zero-error').textContent = 'Zero failed: ' + err.message;
+                status.textContent = 'Idle';
+                status.className = 'status-badge status-idle';
+            } finally {
+                btnH.disabled = false;
+            }
+        }
+
+        async function clearZero() {
+            const btnC = document.getElementById('zero-clear-button');
+            const status = document.getElementById('zero-status');
+            try {
+                if (!pcm || !isConnected) throw new Error('Not connected');
+                btnC.disabled = true;
+                status.textContent = 'Clearing';
+                status.className = 'status-badge status-running';
+                await pcm.WriteUIntVariable('fm_zero_ctrl', 1, 2);
+                status.textContent = 'Done';
+                status.className = 'status-badge status-done';
+            } catch (err) {
+                document.getElementById('zero-error').textContent = 'Clear failed: ' + err.message;
+                status.textContent = 'Idle';
+                status.className = 'status-badge status-idle';
+            } finally {
+                btnC.disabled = false;
+            }
+        }
+
+        async function setDirectionFromToggle() {
+            const chk = document.getElementById('dir-toggle');
+            const status = document.getElementById('dir-status');
+            try {
+                if (!pcm || !isConnected) throw new Error('Not connected');
+                const val = chk.checked ? 1 : 0;
+                await pcm.WriteUIntVariable('fm_direction', 1, val);
+                status.textContent = val ? 'Inverted' : 'Normal';
+                status.className = 'status-badge status-running';
+            } catch (err) {
+                document.getElementById('dir-error').textContent = 'Direction failed: ' + err.message;
             }
         }
     </script>

@@ -12,6 +12,7 @@
 #include "fsl_opamp.h"
 #include "fsl_gpio.h"
 #include "fsl_port.h"
+#include "fsl_mau.h"
 #include "fsl_debug_console.h"
 #include "clock_config.h"
 #include "hardware_init.h"
@@ -88,9 +89,12 @@ void SysTick_Handler(void)
 }
 
 /*! @brief Configure OPAMP modules */
-static void Opamp_InitAll(void)
+void Opamp_Init(void)
 {
     opamp_config_t config;
+
+    RESET_ReleasePeripheralReset(kOPAMP0_RST_SHIFT_RSTn);
+    RESET_ReleasePeripheralReset(kOPAMP1_RST_SHIFT_RSTn);
 
     SPC_EnableActiveModeAnalogModules(SPC0, (kSPC_controlOpamp0 | kSPC_controlOpamp1));
     
@@ -126,10 +130,14 @@ void Hardware_Init(void)
     Pins_Init();
     BOARD_InitBootClocks();
     Hardware_DebugConsoleInit();
-    Opamp_InitAll();
+    Opamp_Init();
     TestPin_Init();
     DWT_Init();
     Heartbeat_Init();
+    
+    mau_config_t cfg;
+    MAU_GetDefaultConfig(&cfg);
+    MAU_Init(MAU0, &cfg);
 }
 
 /*! @brief Set test pin to high level */

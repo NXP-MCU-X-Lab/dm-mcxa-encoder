@@ -801,19 +801,9 @@
               <FilePath>.\source\app_adc.c</FilePath>
             </File>
             <File>
-              <FileName>mau_atan2_test.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>.\source\mau_atan2_test.c</FilePath>
-            </File>
-            <File>
               <FileName>mau_atan2.c</FileName>
               <FileType>1</FileType>
               <FilePath>.\source\mau_atan2.c</FilePath>
-            </File>
-            <File>
-              <FileName>app_uart_dma.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>.\source\app_uart_dma.c</FilePath>
             </File>
             <File>
               <FileName>app_tformat.c</FileName>
