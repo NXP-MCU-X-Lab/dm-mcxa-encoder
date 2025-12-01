@@ -14,15 +14,10 @@
 #include "freemaster_example.h"
 #include "app_adc.h"
 #include "app_encoder.h"
+#include "app_perf.h"
 
 extern adc_sample_result_t adc_result;
 extern encoder_result_t encoder_result;
-
-
-
-
-
-#define ARR_SIZE_FLT 10
 
 
 volatile uint8_t fm_cal_enable;
@@ -82,6 +77,13 @@ FMSTR_TSA_TABLE_BEGIN(first_table)
     // ========== Global Variables ==========
     FMSTR_TSA_RO_VAR(adc_result, FMSTR_TSA_USERTYPE(adc_sample_result_t))
     FMSTR_TSA_RO_VAR(encoder_result, FMSTR_TSA_USERTYPE(encoder_result_t))
+
+    FMSTR_TSA_STRUCT(perf_metrics_t)
+        FMSTR_TSA_MEMBER(perf_metrics_t, adc_us, FMSTR_TSA_UINT32)
+        FMSTR_TSA_MEMBER(perf_metrics_t, atan2_us, FMSTR_TSA_UINT32)
+        FMSTR_TSA_MEMBER(perf_metrics_t, algo_us, FMSTR_TSA_UINT32)
+        FMSTR_TSA_MEMBER(perf_metrics_t, isr_us, FMSTR_TSA_UINT32)
+    FMSTR_TSA_RO_VAR(g_perf, FMSTR_TSA_USERTYPE(perf_metrics_t))
 
     // ========== Calibration View ==========
     FMSTR_TSA_STRUCT(encoder_calibration_t)

@@ -1,5 +1,7 @@
 #include "app_encoder.h"
 #include "mau_atan2.h"
+#include "app_perf.h"
+#include "app_sampler.h"
 #include <math.h>
 #include <stdio.h>
 
@@ -31,7 +33,7 @@ static int8_t dir_sign = +1;
 typedef struct {
     uint8_t initialized;
     float prev_elec_angle;
-    double accum_elec_deg;
+    float accum_elec_deg;
     int32_t turn_count;
     float filtered_angle;
     float published_angle;
@@ -225,7 +227,10 @@ void encoder_process(uint16_t adc_sin, uint16_t adc_cos, encoder_result_t *resul
     }
     
     // ========== Step 3: Electrical Angle Calculation ==========
+    uint32_t c0 = sampler_get_timer_count();
     float elec_angle_deg = mau_atan2f(sin_norm, cos_norm) * RAD_TO_DEG;
+    uint32_t c1 = sampler_get_timer_count();
+    perf_record_atan2_cycles(c1 - c0);
     if (elec_angle_deg < 0.0f) elec_angle_deg += 360.0f;
     
     result->elec_angle_deg = elec_angle_deg;
@@ -233,24 +238,31 @@ void encoder_process(uint16_t adc_sin, uint16_t adc_cos, encoder_result_t *resul
     // ========== Step 4: Phase Unwrapping (Accumulated Electrical Angle) ==========
     if (!state.initialized) {
         state.prev_elec_angle = elec_angle_deg;
-        state.accum_elec_deg = (double)elec_angle_deg;
-        float mech_init = elec_angle_deg / (float)ENCODER_ELEC_CYCLES_PER_REV;
-        state.filtered_angle = mech_init;
+        state.accum_elec_deg = elec_angle_deg;
+        state.turn_count = 0;
         state.initialized = 1;
     } else {
-        // Calculate delta (handle 360° wrap-around)
         float delta_elec = angle_diff_deg(elec_angle_deg, state.prev_elec_angle);
-        state.accum_elec_deg += (double)delta_elec;  // Direction-neutral accumulation
+        state.accum_elec_deg += delta_elec;
+        
+        // 周期性归一化，避免浮点精度损失
+        float elec_per_rev = 360.0f * ENCODER_ELEC_CYCLES_PER_REV;
+        if (state.accum_elec_deg >= elec_per_rev) {
+            state.accum_elec_deg -= elec_per_rev;
+            state.turn_count++;
+        } else if (state.accum_elec_deg < 0.0f) {
+            state.accum_elec_deg += elec_per_rev;
+            state.turn_count--;
+        }
+        
         state.prev_elec_angle = elec_angle_deg;
     }
     
     // ========== Step 5: Mechanical Angle Calculation (FIXED) ==========
-    double mech_total_deg = state.accum_elec_deg / (double)ENCODER_ELEC_CYCLES_PER_REV;
-    
     // Use floorf for correct negative angle handling
-    int32_t turns = (int32_t)floor(mech_total_deg / 360.0);
-    float mech_angle = (float)(mech_total_deg - (double)turns * 360.0);
-    
+    float mech_angle = state.accum_elec_deg / (float)ENCODER_ELEC_CYCLES_PER_REV;
+    int32_t turns = state.turn_count;
+        
     state.turn_count = turns;
     
     // ========== Step 6: Alpha-Beta Filter for Robust Angle Tracking ==========

@@ -16,6 +16,7 @@
 #include "fsl_debug_console.h"
 #include "clock_config.h"
 #include "hardware_init.h"
+#include "app_perf.h"
 #include <stdbool.h>
 /*${header:end}*/
 
@@ -36,18 +37,6 @@
 #define DEMO_OPAMP_COMP_CAP       kOPAMP_FitGain2x
 #define DEMO_OPAMP_BIAS_CURRENT   kOPAMP_ChangeToQuarter
 
-
-void DWT_Init(void)
-{
-    CoreDebug->DEMCR |= CoreDebug_DEMCR_TRCENA_Msk;
-    DWT->CYCCNT = 0;
-    DWT->CTRL |= DWT_CTRL_CYCCNTENA_Msk;
-}
-
-uint32_t DWT_GetCycles(void)
-{
-    return DWT->CYCCNT;
-}
 
 
 /*! @brief Initialize test pin P1_8 for ADC timing measurement */
@@ -132,7 +121,7 @@ void Hardware_Init(void)
     Hardware_DebugConsoleInit();
     Opamp_Init();
     TestPin_Init();
-    DWT_Init();
+    perf_init();
     Heartbeat_Init();
     
     mau_config_t cfg;

@@ -379,6 +379,32 @@
             <div class="error-message" id="zero-error"></div>
             <div class="error-message" id="dir-error"></div>
         </div>
+        <!-- Performance Metrics -->
+        <div class="data-card">
+            <div class="card-title">Performance (us)</div>
+            <div style="display:flex;align-items:center;justify-content:space-between;gap:12px">
+                <div style="min-width:80px">ADC sampling</div>
+                <div class="progress-bar" style="flex:1"><div id="perf-adc-fill" class="progress-fill"></div></div>
+                <div id="perf-adc-val" style="min-width:80px;text-align:right">-- µs</div>
+            </div>
+            <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:10px">
+                <div style="min-width:80px">atan2(MAU)</div>
+                <div class="progress-bar" style="flex:1"><div id="perf-atan2-fill" class="progress-fill"></div></div>
+                <div id="perf-atan2-val" style="min-width:80px;text-align:right">-- µs</div>
+            </div>
+            <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:10px">
+                <div style="min-width:80px">encoder algo</div>
+                <div class="progress-bar" style="flex:1"><div id="perf-algo-fill" class="progress-fill"></div></div>
+                <div id="perf-algo-val" style="min-width:80px;text-align:right">-- µs</div>
+            </div>
+            <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:10px">
+                <div style="min-width:80px">total(ISR consume)</div>
+                <div class="progress-bar" style="flex:1"><div id="perf-isr-fill" class="progress-fill"></div></div>
+                <div id="perf-isr-val" style="min-width:80px;text-align:right">-- µs</div>
+            </div>
+            <div class="progress-text">Bars scaled to 100 µs period</div>
+            <div class="error-message" id="perf-error"></div>
+        </div>
     </div>
 
     <div class="footer">
@@ -587,6 +613,25 @@
                     document.getElementById('dir-error').textContent = '';
                 } catch (error) {
                     document.getElementById('dir-error').textContent = 'Read failed: ' + error.message;
+                }
+                try {
+                    const adcUs = await readVariable('g_perf.adc_us', 'uint', 4);
+                    const atan2Us = await readVariable('g_perf.atan2_us', 'uint', 4);
+                    const algoUs = await readVariable('g_perf.algo_us', 'uint', 4);
+                    const isrUs = await readVariable('g_perf.isr_us', 'uint', 4);
+                    const periodUs = 100;
+                    const clamp = (v) => Math.max(0, Math.min(100, Math.round((v / periodUs) * 100)));
+                    document.getElementById('perf-adc-val').textContent = adcUs + ' µs';
+                    document.getElementById('perf-atan2-val').textContent = atan2Us + ' µs';
+                    document.getElementById('perf-algo-val').textContent = algoUs + ' µs';
+                    document.getElementById('perf-isr-val').textContent = isrUs + ' µs';
+                    document.getElementById('perf-adc-fill').style.width = clamp(adcUs) + '%';
+                    document.getElementById('perf-atan2-fill').style.width = clamp(atan2Us) + '%';
+                    document.getElementById('perf-algo-fill').style.width = clamp(algoUs) + '%';
+                    document.getElementById('perf-isr-fill').style.width = clamp(isrUs) + '%';
+                    document.getElementById('perf-error').textContent = '';
+                } catch (error) {
+                    document.getElementById('perf-error').textContent = 'Read failed: ' + error.message;
                 }
         
                 // Update timestamp

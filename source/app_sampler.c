@@ -8,6 +8,7 @@
 #include "app_sampler.h"
 #include "app_timer.h"
 #include "hardware_init.h"
+#include "app_perf.h"
 
 /* Periodic sampling using CTIMER1:
  * - Triggers ADC conversions
@@ -24,6 +25,7 @@ static volatile uint8_t s_sampler_running = 0;
 static uint32_t s_match_value = 0;
 static volatile encoder_result_t s_last_encoder;
 static volatile adc_sample_result_t s_last_raw;
+static uint32_t s_ctimer_clk = 0;
 
 /* ISR prototype */
 void CTIMER1_IRQHandler(void);
@@ -41,7 +43,8 @@ void sampler_init(uint32_t freq_hz)
     CLOCK_AttachClk(kFRO_HF_to_CTIMER1);
     
     /* Actual timer clock after divider */
-    uint32_t ctimer_clk = fro_hf_freq / divider;  // 1MHz
+    uint32_t ctimer_clk = fro_hf_freq / divider;
+    s_ctimer_clk = ctimer_clk;
     s_match_value = (ctimer_clk / freq_hz) - 1;   // -1 for 0-based counter
 
     CTIMER_GetDefaultConfig(&config);
@@ -100,18 +103,29 @@ void sampler_copy_latest_raw(adc_sample_result_t *out)
 
 void CTIMER1_IRQHandler(void)
 {
-    /* Clear match0 interrupt flag */
     CTIMER_ClearStatusFlags(SAMPLER_CTIMER, kCTIMER_Match0Flag);
-    
+    uint32_t isr_start = SAMPLER_CTIMER->TC;
     TestPin_Set();
-    
+    uint32_t adc_start = SAMPLER_CTIMER->TC;
     adc_sample_result_t raw = adc_read();
-    
+    uint32_t adc_end = SAMPLER_CTIMER->TC;
     s_last_raw = raw;
-
+    uint32_t algo_start = adc_end;
     encoder_result_t enc;
     encoder_process(raw.opamp0_out, raw.opamp1_out, &enc);
+    uint32_t algo_end = SAMPLER_CTIMER->TC;
     s_last_encoder = enc;
-    
     TestPin_Clear();
+    uint32_t isr_end = algo_end;
+    perf_set_cycles(adc_end - adc_start, perf_get_atan2_cycles(), algo_end - algo_start, isr_end - isr_start);
+}
+
+uint32_t sampler_get_timer_clock_hz(void)
+{
+    return s_ctimer_clk;
+}
+
+uint32_t sampler_get_timer_count(void)
+{
+    return SAMPLER_CTIMER->TC;
 }

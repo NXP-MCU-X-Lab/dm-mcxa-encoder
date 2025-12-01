@@ -186,39 +186,26 @@ static void perform_encoder_calibration_fm(void)
 }
 
 
-static void run_tformat_slave_demo(void)
-{
-    tformat_init();
-    adc_init();
-    
-    UART485_SetTxRts(LPUART2, true);
-    
-    start_sampling_default();
-    tformat_slave_loop();
-    while (1)
-    {
-    }
-}
+//static void run_tformat_slave_demo(void)
+//{
+//    tformat_init();
+//    adc_init();
+//    
+//    UART485_SetTxRts(LPUART2, true);
+//    
+//    start_sampling_default();
+//    tformat_slave_loop();
+//    while (1)
+//    {
+//    }
+//}
 
-/* ---------- Mode runners and dispatch ---------- */
-static void run_ascii_stream_mode(void)
-{
-    adc_init();
-    start_sampling_default();
-    stream_encoder_loop();
-}
-
-
-static void run_calibration_then_ascii(void)
-{
-    adc_init();
-    perform_encoder_calibration();
-}
 
 static void run_freemaster_mode(void)
 {
     adc_init();
     start_sampling_default();
+    
     
     FMSTR_SerialSetBaseAddress((LPUART_Type*)LPUART0);
     FMSTR_Example_Init();

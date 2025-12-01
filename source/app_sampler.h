@@ -51,6 +51,9 @@ void sampler_copy_latest_raw(adc_sample_result_t *out);
  */
 void sampler_get_stats(uint32_t *isr_count, uint32_t *max_time_us, uint32_t *last_time_us);
 
+uint32_t sampler_get_timer_clock_hz(void);
+uint32_t sampler_get_timer_count(void);
+
 #ifdef __cplusplus
 }
 #endif
