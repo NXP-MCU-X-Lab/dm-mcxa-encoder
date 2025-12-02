@@ -1,4 +1,9 @@
 /*
+  * Copyright 2025 NXP
+  *
+  * SPDX-License-Identifier: BSD-3-Clause
+  */
+/*
  * Tamagawa T-Format slave-only responder using LPUART2 + eDMA
  * - Responds to CF=ID0 (ABS) and CF=IDD (EEPROM read) and CF=ID3 (combined)
  * - Baud: 2.5Mbps during transaction

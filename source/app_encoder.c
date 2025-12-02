@@ -1,3 +1,9 @@
+/*
+  * Copyright 2025 NXP
+  *
+  * SPDX-License-Identifier: BSD-3-Clause
+  */
+
 #include "app_encoder.h"
 #include "mau_atan2.h"
 #include "app_perf.h"
@@ -245,7 +251,7 @@ void encoder_process(uint16_t adc_sin, uint16_t adc_cos, encoder_result_t *resul
         float delta_elec = angle_diff_deg(elec_angle_deg, state.prev_elec_angle);
         state.accum_elec_deg += delta_elec;
         
-        // 周期性归一化，避免浮点精度损失
+        // Periodic normalization to avoid floating-point precision loss
         float elec_per_rev = 360.0f * ENCODER_ELEC_CYCLES_PER_REV;
         if (state.accum_elec_deg >= elec_per_rev) {
             state.accum_elec_deg -= elec_per_rev;

@@ -1,9 +1,8 @@
 /*
- * Copyright (c) 2023
- * All rights reserved.
- *
- * SPDX-License-Identifier: BSD-3-Clause
- */
+  * Copyright 2025 NXP
+  *
+  * SPDX-License-Identifier: BSD-3-Clause
+  */
 
 #ifndef _APP_ADC_H_
 #define _APP_ADC_H_

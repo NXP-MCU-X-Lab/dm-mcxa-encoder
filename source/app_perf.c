@@ -1,3 +1,9 @@
+/*
+  * Copyright 2025 NXP
+  *
+  * SPDX-License-Identifier: BSD-3-Clause
+  */
+
 #include "app_perf.h"
 #include "fsl_clock.h"
 #include "app_sampler.h"

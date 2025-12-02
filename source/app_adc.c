@@ -1,9 +1,8 @@
 /*
- * Copyright (c) 2023
- * All rights reserved.
- *
- * SPDX-License-Identifier: BSD-3-Clause
- */
+  * Copyright 2025 NXP
+  *
+  * SPDX-License-Identifier: BSD-3-Clause
+  */
 
 #include "fsl_debug_console.h"
 #include "fsl_lpadc.h"

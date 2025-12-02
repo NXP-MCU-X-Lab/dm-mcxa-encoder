@@ -1,3 +1,8 @@
+/*
+  * Copyright 2025 NXP
+  *
+  * SPDX-License-Identifier: BSD-3-Clause
+  */
 /* app_sampler.h - CTIMER1-based 1kHz sampling ISR */
 #ifndef APP_SAMPLER_H
 #define APP_SAMPLER_H

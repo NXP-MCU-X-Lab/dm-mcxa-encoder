@@ -1,3 +1,9 @@
+/*
+  * Copyright 2025 NXP
+  *
+  * SPDX-License-Identifier: BSD-3-Clause
+  */
+
 #ifndef APP_PERF_H
 #define APP_PERF_H
 

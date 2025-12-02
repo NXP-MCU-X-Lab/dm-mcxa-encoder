@@ -1,4 +1,9 @@
-// app_encoder.h - Fixed version
+/*
+  * Copyright 2025 NXP
+  *
+  * SPDX-License-Identifier: BSD-3-Clause
+  */
+
 #ifndef APP_ENCODER_H
 #define APP_ENCODER_H
 
@@ -37,7 +42,7 @@
 #define ENCODER_OUTPUT_DEADBAND_COUNTS 2
 
 // Angle deadband in degrees; small angle changes are held
-#define ENCODER_ANGLE_DEADBAND_DEG 0.1f  // ~0.1° deadband
+#define ENCODER_ANGLE_DEADBAND_DEG 0.1f  // ~0.1ï¿½ deadband
 
 // ========== Data Structures ==========
 typedef struct {

@@ -1,4 +1,9 @@
-/* MAU 封装：mau_atan2 */
+/*
+  * Copyright 2025 NXP
+  *
+  * SPDX-License-Identifier: BSD-3-Clause
+  */
+/* MAU wrapper: mau_atan2 */
 #ifndef MAU_ATAN2_H_
 #define MAU_ATAN2_H_
 
@@ -9,14 +14,14 @@ extern "C" {
 #endif
 
 /*
- * 使用 MAU 的 atan 功能实现 atan2：返回范围 (-pi, pi]
- * base: MAU 外设基址（如 MAU0）
- * y, x: 输入坐标
- * res: MAU 计算分辨率（如 kMAU_RES0）
+ * Use MAU atan to implement atan2: returns range (-pi, pi]
+ * base: MAU peripheral base (e.g., MAU0)
+ * y, x: input coordinates
+ * res: MAU computation resolution (e.g., kMAU_RES0)
  */
 float mau_atan2(MAU_Type *base, float y, float x, mau_result_t res);
 
-/* 便捷封装：固定使用 MAU0 与默认分辨率 */
+/* Convenience wrapper: uses MAU0 with default resolution */
 static inline float mau_atan2f(float y, float x)
 {
     return mau_atan2(MAU0, y, x, kMAU_RES0);

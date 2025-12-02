@@ -1,3 +1,8 @@
+/*
+  * Copyright 2025 NXP
+  *
+  * SPDX-License-Identifier: BSD-3-Clause
+  */
 /* app_sampler.c - CTIMER1-based periodic sampling ISR */
 
 #include "fsl_ctimer.h"

@@ -11,6 +11,7 @@
 - 采样：双 16 位 ADC 同步采样，CTIMER1 周期中断驱动。
 - 计算：2×2 椭圆校正 + 高精度 `atan2` + 多圈展开 + 自适应滤波。
 - 可视化：FreeMASTER 桌面 + Web 前端（`freemaster/index.html`）。
+- 性能：CTIMER1 基于周期计数的微秒级耗时统计（ADC/atan2/算法/ISR），Web 前端进度条可视化。
 
 ## 硬件结构框图
 ```
@@ -39,6 +40,7 @@
 - 温度传感器 → `ADC0_A26`
 - FreeMASTER/调试 UART：`LPUART0 @ 115200`（`Hardware_DebugConsoleInit`）
 - 可选 RS‑485 接口：`LPUART2`（`UART485_SetTxRts`），从机示例见 `app_tformat.*`
+- 测试引脚：P1_8（`TestPin_*`），在采样 ISR 期间置高以示波器观察时间包络；心跳指示：P1_11（500ms 翻转）。
 
 ## 算法原理
 - 信号模型与畸变来源
@@ -85,10 +87,29 @@
     - `Start Calibration`：触发在线椭圆拟合并自动应用；进度实时显示。
     - `Zero Here / Clear Zero`：设置或清除零位。
     - `Direction`：勾选切换正/反方向（内部用 `fm_direction`）。
+  - 性能卡片：显示 `ADC/atan2(MAU)/encoder algo/total(ISR)` 四项耗时（单位 µs），进度条按 10kHz 采样周期（100µs）缩放。
+
+## 时间测量与性能
+- 计时基准
+  - 使用 `CTIMER1` 作为采样与计时统一基准，周期 10kHz（100µs）。
+  - 在 ISR 内读取 `CTIMER1->TC` 计数差，转换为微秒：`us = ticks * 1e6 / f_timer`。
+  
+- 指标定义与采集点
+  - `g_perf.adc_us`：ADC 触发与读取耗时；在采样 ISR 内记录起止计数。
+  - `g_perf.atan2_us`：`MAU atan2` 计算耗时；在角度计算前后读取计数并记录差值。
+  - `g_perf.algo_us`：编码器算法（归一化、展开、滤波、量化）总耗时，不含 ADC。
+  - `g_perf.isr_us`：采样 ISR 总耗时（含 ADC+算法）。
+  
+  | 测试项        | 值(us) | 描述                                         |
+  | ------------- | ------ | -------------------------------------------- |
+  | adc_us        | 4      | sin/cos ADC采样所需时间                      |
+  | atan2_us      | <<1    | 经过MAU加速的atan2所需时间                   |
+  | algo_us       | 2      | 编码器核心算法(椭圆矫正,多圈展开,滤波,输出)  |
+  | (total)isr_us | ~7     | 编码器运算加总(从进入定时中断到中断处理完毕) |
 
 ## 性能规格
 - 采样/更新率：`10kHz`（`SAMPLE_FRQ = 10*1000`）。
-- ADC 分辨率：16 位；信号通道硬件平均 16×。
+- ADC 分辨率：16 位
 - 角度分辨率：16 位（约 0.0055°/count）。
 - 多圈范围：`int32_t` 计数（±2,147,483,647）。
 
@@ -99,3 +120,4 @@
 - `encoder_result.speed_rpm / speed_dps`：转速（RPM/度每秒）。
 - `encoder_result.magnitude`：信号幅值质量指标。
 - `adc_result.temperature`：温度（°C）。
+- `g_perf.adc_us / atan2_us / algo_us / isr_us`：采样/计算/算法/ISR 耗时（µs）。

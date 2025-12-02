@@ -1,4 +1,9 @@
 /*
+  * Copyright 2025 NXP
+  *
+  * SPDX-License-Identifier: BSD-3-Clause
+  */
+/*
  * Tamagawa T-Format minimal driver using LPUART2 + eDMA (DMA0 CH7 TX, CH6 RX)
  * Implements:
  *  - ABS read (CF ID0: 0x02)

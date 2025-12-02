@@ -1,11 +1,8 @@
 /*
- * Copyright (c) 2007-2015 Freescale Semiconductor, Inc.
- * Copyright 2018-2019 NXP
- *
- * SPDX-License-Identifier: BSD-3-Clause
- *
- * FreeMASTER Communication Driver - Example Application Declarations
- */
+  * Copyright 2025 NXP
+  *
+  * SPDX-License-Identifier: BSD-3-Clause
+  */
 
 #ifndef __FMSTR_EXAMPLE_H
 #define __FMSTR_EXAMPLE_H

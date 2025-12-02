@@ -1,8 +1,8 @@
 /*
- * Copyright 2024 NXP
- *
- * SPDX-License-Identifier: BSD-3-Clause
- */
+  * Copyright 2025 NXP
+  *
+  * SPDX-License-Identifier: BSD-3-Clause
+  */
 /*${header:start}*/
 #include "pin_mux.h"
 #include "fsl_clock.h"
