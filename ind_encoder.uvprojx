@@ -766,9 +766,9 @@
           <GroupName>source</GroupName>
           <Files>
             <File>
-              <FileName>app_encoder.c</FileName>
+              <FileName>app_encoder_v2.c</FileName>
               <FileType>1</FileType>
-              <FilePath>.\source\app_encoder.c</FilePath>
+              <FilePath>.\source\app_encoder_v2.c</FilePath>
             </File>
             <File>
               <FileName>clock_config.c</FileName>
@@ -804,11 +804,6 @@
               <FileName>mau_atan2.c</FileName>
               <FileType>1</FileType>
               <FilePath>.\source\mau_atan2.c</FilePath>
-            </File>
-            <File>
-              <FileName>app_tformat.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>.\source\app_tformat.c</FilePath>
             </File>
             <File>
               <FileName>freemaster_example.c</FileName>

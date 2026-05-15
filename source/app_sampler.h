@@ -13,7 +13,7 @@
  */
 
 #include <stdint.h>
-#include "app_encoder.h"
+#include "app_encoder_v2.h"
 #include "app_adc.h"
 
 #ifdef __cplusplus

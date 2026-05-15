@@ -13,9 +13,9 @@
 
 #include "app_adc.h"
 
-/* Simple ADC driver for inductive encoder:
+/* Simple ADC driver for V2 inductive encoder hardware:
  * - Configures ADCs and trigger routing
- * - Sets up conversion sequences for OPAMP outputs and temperature
+ * - Sets up conversion sequences for A1/A2 channels and temperature
  * - Provides a single read function returning structured results
  */
 
@@ -60,7 +60,7 @@ static void adc_init_peripheral(ADC_Type *base)
 }
 
 /**
- * @brief Configure command for signal channels (OPAMP outputs)
+ * @brief Configure command for signal channels
  * @param base ADC peripheral base address
  * @param cmdId Command ID
  * @param channel Channel number
@@ -111,19 +111,28 @@ static void adc_configure_sequences(void)
 {
     lpadc_conv_trigger_config_t triggerConfig;
     
-    /* Output Only Mode with Temperature Support */
-    /* Normal Sequence: OUT0, OUT1 */
-    adc_config_signal_cmd(ADC0, ADC_CMD_NORMAL_SEQ, ADC_CH_OPAMP0_OUT, 0U);
-    adc_config_signal_cmd(ADC1, ADC_CMD_NORMAL_SEQ, ADC_CH_OPAMP1_OUT, 0U);
+    /* Normal sequence:
+     * ADC0: A1_SIN -> A2_COS
+     * ADC1: A1_COS -> A2_SIN
+     */
+    adc_config_signal_cmd(ADC0, ADC_CMD_NORMAL_A, ADC_CH_A1_SIN, ADC_CMD_NORMAL_B);
+    adc_config_signal_cmd(ADC0, ADC_CMD_NORMAL_B, ADC_CH_A2_COS, 0U);
+    adc_config_signal_cmd(ADC1, ADC_CMD_NORMAL_A, ADC_CH_A1_COS, ADC_CMD_NORMAL_B);
+    adc_config_signal_cmd(ADC1, ADC_CMD_NORMAL_B, ADC_CH_A2_SIN, 0U);
     
-    /* Temperature Sequence: OUT0 -> TEMP(4) -> OUT1 */
-    adc_config_signal_cmd(ADC0, ADC_CMD_TEMP_SEQ_CH0, ADC_CH_OPAMP0_OUT, ADC_CMD_TEMP_SEQ_CH1);
-    adc_config_temp_cmd(ADC0, ADC_CMD_TEMP_SEQ_CH1, 0U);
-    adc_config_signal_cmd(ADC1, ADC_CMD_TEMP_SEQ_CH0, ADC_CH_OPAMP1_OUT, 0U);
+    /* Temperature sequence keeps the four raw inputs available:
+     * ADC0: A1_SIN -> TEMP(4) -> A2_COS
+     * ADC1: A1_COS -> A2_SIN
+     */
+    adc_config_signal_cmd(ADC0, ADC_CMD_TEMP_A, ADC_CH_A1_SIN, ADC_CMD_TEMP_SENSOR);
+    adc_config_temp_cmd(ADC0, ADC_CMD_TEMP_SENSOR, ADC_CMD_TEMP_B);
+    adc_config_signal_cmd(ADC0, ADC_CMD_TEMP_B, ADC_CH_A2_COS, 0U);
+    adc_config_signal_cmd(ADC1, ADC_CMD_TEMP_A, ADC_CH_A1_COS, ADC_CMD_TEMP_B);
+    adc_config_signal_cmd(ADC1, ADC_CMD_TEMP_B, ADC_CH_A2_SIN, 0U);
     
     /* Configure Triggers */
     LPADC_GetDefaultConvTriggerConfig(&triggerConfig);
-    triggerConfig.targetCommandId = ADC_CMD_NORMAL_SEQ;
+    triggerConfig.targetCommandId = ADC_CMD_NORMAL_A;
     triggerConfig.enableHardwareTrigger = true;
     
     LPADC_SetConvTriggerConfig(ADC0, ADC_TRIGGER_ID, &triggerConfig);
@@ -228,13 +237,28 @@ void adc_init(void)
     adc_configure_sequences();
     
     /* Print configuration */
-    PRINTF("=== Magnetic Encoder ADC Init ===\r\n");
+    PRINTF("=== V2 Raw ADC Init ===\r\n");
     PRINTF("ADC0 clock: %d Hz\r\n", CLOCK_GetAdcClkFreq(0));
     PRINTF("ADC1 clock: %d Hz\r\n", CLOCK_GetAdcClkFreq(1));
     PRINTF("Signal average: 16x, Resolution: 16-bit\r\n");
     PRINTF("Temperature average: 128x (every %d samples)\r\n", TEMP_SAMPLE_INTERVAL);
-    PRINTF("OPAMP0: INP(P2_12) INN(P2_13) OUT(P2_15)\r\n");
-    PRINTF("OPAMP1: INP(P2_16) INN(P2_17) OUT(P2_19)\r\n");
+    PRINTF("A1 SIN: internal OPAMP0_OUT -> ADC0_A2\r\n");
+    PRINTF("A1 COS: internal OPAMP1_OUT -> ADC1_A2\r\n");
+    PRINTF("A2 SIN: external TLV9062 A2_OPA0_OUT -> ADC1_A3\r\n");
+    PRINTF("A2 COS: external TLV9062 A2_OPA1_OUT -> ADC0_A7\r\n");
+}
+
+static inline void adc_fill_voltages(adc_sample_result_t *result)
+{
+    result->a1_sin_voltage = adc_raw_to_voltage(result->a1_sin_raw);
+    result->a1_cos_voltage = adc_raw_to_voltage(result->a1_cos_raw);
+    result->a2_sin_voltage = adc_raw_to_voltage(result->a2_sin_raw);
+    result->a2_cos_voltage = adc_raw_to_voltage(result->a2_cos_raw);
+
+    result->opamp0_out = result->a1_sin_raw;
+    result->opamp1_out = result->a1_cos_raw;
+    result->opamp0_out_voltage = result->a1_sin_voltage;
+    result->opamp1_out_voltage = result->a1_cos_voltage;
 }
 
 adc_sample_result_t adc_read(void)
@@ -251,7 +275,7 @@ adc_sample_result_t adc_read(void)
         /* Switch to temperature sequence */
         lpadc_conv_trigger_config_t triggerConfig;
         LPADC_GetDefaultConvTriggerConfig(&triggerConfig);
-        triggerConfig.targetCommandId = ADC_CMD_TEMP_SEQ_CH0;
+        triggerConfig.targetCommandId = ADC_CMD_TEMP_A;
         triggerConfig.enableHardwareTrigger = true;
         LPADC_SetConvTriggerConfig(ADC0, ADC_TRIGGER_ID, &triggerConfig);
         LPADC_SetConvTriggerConfig(ADC1, ADC_TRIGGER_ID, &triggerConfig);
@@ -262,42 +286,42 @@ adc_sample_result_t adc_read(void)
     
     /* Read results based on mode */
     if (sample_temp) {
-        /* Temperature sequence: OUT0 -> [TEMP�4] -> OUT1 */
-        result.opamp0_out = adc_read_fifo(ADC0);
+        /* ADC0: A1_SIN -> [TEMP x4] -> A2_COS */
+        result.a1_sin_raw = adc_read_fifo(ADC0);
         
         /* Read 4 temperature samples (discard first 2) */
         uint16_t temp_samples[4];
         for (int i = 0; i < 4; i++) {
             temp_samples[i] = adc_read_fifo(ADC0);
         }
+        result.a2_cos_raw = adc_read_fifo(ADC0);
         
-        result.opamp1_out = adc_read_fifo(ADC1);
+        /* ADC1: A1_COS -> A2_SIN */
+        result.a1_cos_raw = adc_read_fifo(ADC1);
+        result.a2_sin_raw = adc_read_fifo(ADC1);
         
         /* Calculate temperature using samples 2 and 3 (Vbe1 and Vbe8) */
         g_last_temperature = adc_calculate_temperature(temp_samples[2], temp_samples[3]);
         result.temperature = g_last_temperature;
         
-        /* Convert to voltage */
-        result.opamp0_out_voltage = adc_raw_to_voltage(result.opamp0_out);
-        result.opamp1_out_voltage = adc_raw_to_voltage(result.opamp1_out);
+        adc_fill_voltages(&result);
         
         /* Restore normal sequence */
         lpadc_conv_trigger_config_t triggerConfig;
         LPADC_GetDefaultConvTriggerConfig(&triggerConfig);
-        triggerConfig.targetCommandId = ADC_CMD_NORMAL_SEQ;
+        triggerConfig.targetCommandId = ADC_CMD_NORMAL_A;
         triggerConfig.enableHardwareTrigger = true;
         LPADC_SetConvTriggerConfig(ADC0, ADC_TRIGGER_ID, &triggerConfig);
         LPADC_SetConvTriggerConfig(ADC1, ADC_TRIGGER_ID, &triggerConfig);
         
     } else {
-        /* Normal sequence: OUT0, OUT1 */
-        result.opamp0_out = adc_read_fifo(ADC0);
-        result.opamp1_out = adc_read_fifo(ADC1);
+        /* Normal sequence, two results per ADC. */
+        result.a1_sin_raw = adc_read_fifo(ADC0);
+        result.a2_cos_raw = adc_read_fifo(ADC0);
+        result.a1_cos_raw = adc_read_fifo(ADC1);
+        result.a2_sin_raw = adc_read_fifo(ADC1);
         
-        /* Convert to voltage */
-        result.opamp0_out_voltage = adc_raw_to_voltage(result.opamp0_out);
-        result.opamp1_out_voltage = adc_raw_to_voltage(result.opamp1_out);
-        
+        adc_fill_voltages(&result);
         result.temperature = g_last_temperature;
     }
     

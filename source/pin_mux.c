@@ -190,7 +190,7 @@ void Pins_Init(void)
     PORT_SetPinConfig(PORT2, 1, &port2_1_config);
 
                                                     
-    const port_pin_config_t port2_12_13_15_16_17_19_config = {/* Internal pull-up/down resistor is disabled */
+    const port_pin_config_t port2_analog_config = {/* Internal pull-up/down resistor is disabled */
                                                     .pullSelect = kPORT_PullDisable,
                                                     /* Low internal pull resistor value is selected. */
                                                     .pullValueSelect = kPORT_LowPullResistor,
@@ -213,17 +213,19 @@ void Pins_Init(void)
                                                     /* Pin Control Register fields [15:0] are not locked */
                                                     .lockRegister = kPORT_UnlockRegister};
 
-    PORT_SetPinConfig(PORT2, 12, &port2_12_13_15_16_17_19_config);
-    PORT_SetPinConfig(PORT2, 13, &port2_12_13_15_16_17_19_config);
-    PORT_SetPinConfig(PORT2, 15, &port2_12_13_15_16_17_19_config);
-    PORT_SetPinConfig(PORT2, 16, &port2_12_13_15_16_17_19_config);
-    PORT_SetPinConfig(PORT2, 17, &port2_12_13_15_16_17_19_config);
-    PORT_SetPinConfig(PORT2, 19, &port2_12_13_15_16_17_19_config);
+    PORT_SetPinConfig(PORT2, 6, &port2_analog_config);
+    PORT_SetPinConfig(PORT2, 7, &port2_analog_config);
+    PORT_SetPinConfig(PORT2, 12, &port2_analog_config);
+    PORT_SetPinConfig(PORT2, 13, &port2_analog_config);
+    PORT_SetPinConfig(PORT2, 15, &port2_analog_config);
+    PORT_SetPinConfig(PORT2, 16, &port2_analog_config);
+    PORT_SetPinConfig(PORT2, 17, &port2_analog_config);
+    PORT_SetPinConfig(PORT2, 19, &port2_analog_config);
                                                     
                                               
     /* ASR i2c inteface */
-    PORT_SetPinConfig(PORT3, 27, &port2_12_13_15_16_17_19_config);
-    PORT_SetPinConfig(PORT3, 28, &port2_12_13_15_16_17_19_config);
+    PORT_SetPinConfig(PORT3, 27, &port2_analog_config);
+    PORT_SetPinConfig(PORT3, 28, &port2_analog_config);
                                                     
                                                     
     const port_pin_config_t port_gpio_config = {/* Internal pull-up resistor is enabled */

@@ -17,7 +17,7 @@
 
 /* Periodic sampling using CTIMER1:
  * - Triggers ADC conversions
- * - Reads raw OPAMP outputs and computes encoder angles
+ * - Reads raw OPAMP outputs
  * - Stores latest results for safe copying from main context
  */
 
@@ -38,9 +38,6 @@ void CTIMER1_IRQHandler(void);
 void sampler_init(uint32_t freq_hz)
 {
     ctimer_config_t config;
-
-    /* Initialize encoder module state */
-    encoder_init();
 
     uint32_t fro_hf_freq = CLOCK_GetFreq(kCLOCK_FroHf);
     uint32_t divider = 4;
@@ -116,13 +113,10 @@ void CTIMER1_IRQHandler(void)
     uint32_t adc_end = SAMPLER_CTIMER->TC;
     s_last_raw = raw;
     uint32_t algo_start = adc_end;
-    encoder_result_t enc;
-    encoder_process(raw.opamp0_out, raw.opamp1_out, &enc);
-    uint32_t algo_end = SAMPLER_CTIMER->TC;
-    s_last_encoder = enc;
+    uint32_t algo_end = algo_start;
     TestPin_Clear();
     uint32_t isr_end = algo_end;
-    perf_set_cycles(adc_end - adc_start, perf_get_atan2_cycles(), algo_end - algo_start, isr_end - isr_start);
+    perf_set_cycles(adc_end - adc_start, 0U, algo_end - algo_start, isr_end - isr_start);
 }
 
 uint32_t sampler_get_timer_clock_hz(void)

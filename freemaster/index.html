@@ -532,8 +532,9 @@
                 try {
                     const calDone = await readVariable('fm_cal_done', 'uint', 1);
                     const calProg = await readVariable('fm_cal_progress', 'uint', 2);
-                    updateCalibrationUI(calDone, calProg);
-                    document.getElementById('calib-error').textContent = '';
+                    const calState = await readVariable('fm_cal_state', 'uint', 1);
+                    const calStatus = await readVariable('fm_cal_status', 'uint', 4);
+                    updateCalibrationUI(calDone, calProg, calState, calStatus);
                 } catch (error) {
                     document.getElementById('calib-error').textContent = 'Read failed: ' + error.message;
                 }
@@ -698,26 +699,40 @@
             }
         }
 
-        function updateCalibrationUI(done, progress) {
+        function formatHex32(value) {
+            return '0x' + ((Number(value) >>> 0).toString(16).toUpperCase().padStart(8, '0'));
+        }
+
+        function updateCalibrationUI(done, progress, state, calStatus) {
             const btn = document.getElementById('calib-button');
             const status = document.getElementById('calib-status');
             const fill = document.getElementById('calib-progress-fill');
             const text = document.getElementById('calib-progress-text');
+            const error = document.getElementById('calib-error');
             const p = Math.max(0, Math.min(100, Number(progress) || 0));
+            const s = Number(state) || 0;
             fill.style.width = p + '%';
             text.textContent = p + '%';
-            if (Number(done) === 1) {
-                status.textContent = 'Done';
-                status.className = 'status-badge status-done';
-                btn.disabled = false;
-            } else if (p > 0 && p < 100) {
+            if (s === 1) {
                 status.textContent = 'Calibrating';
                 status.className = 'status-badge status-running';
                 btn.disabled = true;
+                error.textContent = '';
+            } else if ((s === 2) || (Number(done) === 1)) {
+                status.textContent = 'Done';
+                status.className = 'status-badge status-done';
+                btn.disabled = false;
+                error.textContent = '';
+            } else if (s === 3) {
+                status.textContent = 'Failed';
+                status.className = 'status-badge status-idle';
+                btn.disabled = false;
+                error.textContent = 'Status: ' + formatHex32(calStatus);
             } else {
                 status.textContent = 'Idle';
                 status.className = 'status-badge status-idle';
                 btn.disabled = false;
+                error.textContent = '';
             }
         }
 

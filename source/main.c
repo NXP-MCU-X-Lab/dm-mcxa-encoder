@@ -4,407 +4,256 @@
   * SPDX-License-Identifier: BSD-3-Clause
   */
 
-#include <stdio.h>
-#include <math.h>
+#include <stdbool.h>
 #include <stdint.h>
+
+#include "fsl_common.h"
 #include "fsl_device_registers.h"
-#include "fsl_debug_console.h"
+#include "fsl_lpuart.h"
+
 #include "app_adc.h"
-#include "app_timer.h"
-#include "app_sampler.h"
-#include "app_encoder.h"
-#include "hardware_init.h"
-#include "mcux_config.h"
-#include "app_tformat.h"
-
+#include "app_encoder_v2.h"
 #include "freemaster.h"
-#include "freemaster_serial_lpuart.h"
 #include "freemaster_example.h"
+#include "freemaster_serial_lpuart.h"
+#include "hardware_init.h"
 
+#define FMSTR_LOOP_DELAY_US     1000U
+#define CAL_SAMPLE_DELAY_US     1000U
+#define ZERO_AVERAGE_SAMPLES    64U
 
-#define SAMPLE_FRQ          (10*1000)
-
-/* Application entry point for inductive encoder demo:
- * - Configures clocks, ADC, and periodic sampler
- * - Supports an auto-calibration routine to fit ellipse and set zero
- * - Streams angle/turns via UART in the main loop
- */
-
+#define FM_CAL_STATE_IDLE       0U
+#define FM_CAL_STATE_RUNNING    1U
+#define FM_CAL_STATE_DONE       2U
+#define FM_CAL_STATE_FAILED     3U
 
 adc_sample_result_t adc_result;
 encoder_result_t encoder_result;
-static void perform_encoder_calibration(void);
-static void stream_encoder_loop(void);
+v2_encoder_result_t v2_result;
+v2_encoder_diag_t v2_diag;
 
-#define CAL_TOTAL_ITERATIONS    (30000U)
-#define CAL_TARGET_SAMPLES      (2048U)
-#define CAL_PROGRESS_INTERVAL   (1000U)
-#define CAL_ZERO_AVG_SAMPLES    (128U)
+static v2_encoder_calibration_t s_v2_calibration;
+static v2_encoder_state_t s_v2_state;
 
-
-
-static void print_system_clocks(void)
+static v2_encoder_raw_sample_t adc_to_encoder_sample(const adc_sample_result_t *sample)
 {
-    uint32_t freq;
-    printf("=== System Clocks ===\r\n");
-    freq = CLOCK_GetFreq(kCLOCK_CoreSysClk);
-    printf("Core Clock:    %u Hz (%u MHz)\r\n", freq, freq / 1000000U);
-    freq = CLOCK_GetFreq(kCLOCK_FroHf);
-    printf("FRO_HF:        %u Hz (%u MHz)\r\n", freq, freq / 1000000U);
-    freq = CLOCK_GetFreq(kCLOCK_FroHfDiv);
-    printf("FRO_HF_DIV:    %u Hz (%u MHz)\r\n", freq, freq / 1000000U);
+    v2_encoder_raw_sample_t encoder_sample;
+
+    encoder_sample.a1_sin_raw = sample->a1_sin_raw;
+    encoder_sample.a1_cos_raw = sample->a1_cos_raw;
+    encoder_sample.a2_sin_raw = sample->a2_sin_raw;
+    encoder_sample.a2_cos_raw = sample->a2_cos_raw;
+
+    return encoder_sample;
 }
 
-static void start_sampling_default(void)
+static void copy_v2_to_legacy_result(const adc_sample_result_t *adc_sample,
+                                     const v2_encoder_result_t *v2_result,
+                                     encoder_result_t *legacy_result)
 {
-    sampler_init(SAMPLE_FRQ);
-    sampler_start();
-    encoder_set_direction(-1);
+    legacy_result->sin_raw = adc_sample->a1_sin_raw;
+    legacy_result->cos_raw = adc_sample->a1_cos_raw;
+    legacy_result->sin_norm = 0.0f;
+    legacy_result->cos_norm = 0.0f;
+    legacy_result->magnitude = v2_result->mag16;
+    legacy_result->elec_angle_deg = v2_result->phase16_deg;
+    legacy_result->angle_deg = v2_result->angle_deg;
+    legacy_result->turns = 0;
+    legacy_result->angle_counts = (uint16_t)v2_result->angle_counts;
+    legacy_result->speed_dps = 0.0f;
+    legacy_result->speed_rpm = 0.0f;
 }
 
-static void perform_encoder_calibration_fm(void)
+static v2_encoder_raw_sample_t average_encoder_sample(uint32_t sample_count, uint32_t delay_us)
 {
-    sampler_stop();
-    fm_cal_done = 0;
-    fm_cal_progress = 0;
+    uint32_t a1_sin_sum = 0U;
+    uint32_t a1_cos_sum = 0U;
+    uint32_t a2_sin_sum = 0U;
+    uint32_t a2_cos_sum = 0U;
+    uint32_t i;
+    v2_encoder_raw_sample_t sample;
 
-    uint16_t sin_min = 65535, sin_max = 0;
-    uint16_t cos_min = 65535, cos_max = 0;
-
-    double sum_sin = 0.0;
-    double sum_cos = 0.0;
-    double sum_sin2 = 0.0;
-    double sum_cos2 = 0.0;
-    double sum_sincos = 0.0;
-    uint32_t sample_count = 0;
-
-    uint32_t stride = (CAL_TARGET_SAMPLES > 0) ? (CAL_TOTAL_ITERATIONS / CAL_TARGET_SAMPLES) : 1U;
-    if (stride == 0U) {
-        stride = 1U;
-    }
-
-    for (uint32_t i = 0; i < CAL_TOTAL_ITERATIONS; i++) {
+    for (i = 0U; i < sample_count; i++)
+    {
         FMSTR_Poll();
-        adc_sample_result_t result = adc_read();
-
-        if (result.opamp0_out < sin_min) sin_min = result.opamp0_out;
-        if (result.opamp0_out > sin_max) sin_max = result.opamp0_out;
-        if (result.opamp1_out < cos_min) cos_min = result.opamp1_out;
-        if (result.opamp1_out > cos_max) cos_max = result.opamp1_out;
-
-        if ((i % stride) == 0U && sample_count < CAL_TARGET_SAMPLES) {
-            double sin_raw = (double)result.opamp0_out;
-            double cos_raw = (double)result.opamp1_out;
-            sum_sin += sin_raw;
-            sum_cos += cos_raw;
-            sum_sin2 += sin_raw * sin_raw;
-            sum_cos2 += cos_raw * cos_raw;
-            sum_sincos += sin_raw * cos_raw;
-            sample_count++;
-        }
-
-        fm_cal_progress = (uint16_t)((i * 100U) / CAL_TOTAL_ITERATIONS);
-        SDK_DelayAtLeastUs(100, CLOCK_GetFreq(kCLOCK_CoreSysClk));
+        adc_result = adc_read();
+        a1_sin_sum += adc_result.a1_sin_raw;
+        a1_cos_sum += adc_result.a1_cos_raw;
+        a2_sin_sum += adc_result.a2_sin_raw;
+        a2_cos_sum += adc_result.a2_cos_raw;
+        SDK_DelayAtLeastUs(delay_us, CLOCK_GetFreq(kCLOCK_CoreSysClk));
     }
 
-    if (sample_count < 16U) {
-        encoder_calibrate(sin_min, sin_max, cos_min, cos_max);
-    } else {
-        double invN = 1.0 / (double)sample_count;
-        double mean_sin = sum_sin * invN;
-        double mean_cos = sum_cos * invN;
-        double var_sin = (sum_sin2 * invN) - mean_sin * mean_sin;
-        double var_cos = (sum_cos2 * invN) - mean_cos * mean_cos;
-        double cov_sc = (sum_sincos * invN) - mean_sin * mean_cos;
+    sample.a1_sin_raw = (uint16_t)((a1_sin_sum + (sample_count / 2U)) / sample_count);
+    sample.a1_cos_raw = (uint16_t)((a1_cos_sum + (sample_count / 2U)) / sample_count);
+    sample.a2_sin_raw = (uint16_t)((a2_sin_sum + (sample_count / 2U)) / sample_count);
+    sample.a2_cos_raw = (uint16_t)((a2_cos_sum + (sample_count / 2U)) / sample_count);
 
-        const double min_var = 1.0;
-        if (var_sin < min_var) var_sin = min_var;
-        if (var_cos < min_var) var_cos = min_var;
-
-        float a = (float)var_sin;
-        float b = (float)cov_sc;
-        float d = (float)var_cos;
-
-        float trace = a + d;
-        float delta = trace * 0.5f * trace * 0.5f - (a * d - b * b);
-        if (delta < 0.0f) delta = 0.0f;
-        float root = sqrtf(delta);
-        float lambda1 = trace * 0.5f + root;
-        float lambda2 = trace * 0.5f - root;
-
-        if (lambda1 < 1e-6f) lambda1 = 1e-6f;
-        if (lambda2 < 1e-6f) lambda2 = 1e-6f;
-
-        float v1x = 1.0f, v1y = 0.0f;
-        float v2x = 0.0f, v2y = 1.0f;
-
-        if (fabsf(b) > 1e-3f) {
-            v1x = lambda1 - d;
-            v1y = b;
-            float norm = sqrtf(v1x * v1x + v1y * v1y);
-            if (norm > 1e-6f) {
-                v1x /= norm;
-                v1y /= norm;
-            } else {
-                v1x = 1.0f;
-                v1y = 0.0f;
-            }
-            v2x = -v1y;
-            v2y = v1x;
-        } else {
-            if (a < d) {
-                v1x = 0.0f; v1y = 1.0f;
-                v2x = 1.0f; v2y = 0.0f;
-            }
-        }
-
-        float scale1 = 1.0f / sqrtf(2.0f * lambda1);
-        float scale2 = 1.0f / sqrtf(2.0f * lambda2);
-
-        encoder_calibration_t cal;
-        cal.sin_center = (float)mean_sin;
-        cal.cos_center = (float)mean_cos;
-        cal.transform[0][0] = scale1 * v1x;
-        cal.transform[0][1] = scale1 * v1y;
-        cal.transform[1][0] = scale2 * v2x;
-        cal.transform[1][1] = scale2 * v2y;
-
-        float det_t = cal.transform[0][0] * cal.transform[1][1] - cal.transform[0][1] * cal.transform[1][0];
-        if (det_t < 0.0f) {
-            cal.transform[1][0] = -cal.transform[1][0];
-            cal.transform[1][1] = -cal.transform[1][1];
-        }
-
-        if (!isfinite(cal.transform[0][0]) || !isfinite(cal.transform[0][1]) ||
-            !isfinite(cal.transform[1][0]) || !isfinite(cal.transform[1][1])) {
-            encoder_calibrate(sin_min, sin_max, cos_min, cos_max);
-        } else {
-            encoder_apply_calibration(&cal);
-        }
-    }
-
-    fm_cal_progress = 100;
-    fm_cal_done = 1;
-    sampler_start();
+    return sample;
 }
 
-
-//static void run_tformat_slave_demo(void)
-//{
-//    tformat_init();
-//    adc_init();
-//    
-//    UART485_SetTxRts(LPUART2, true);
-//    
-//    start_sampling_default();
-//    tformat_slave_loop();
-//    while (1)
-//    {
-//    }
-//}
-
-
-static void run_freemaster_mode(void)
+static void perform_v2_calibration_fm(void)
 {
-    adc_init();
-    start_sampling_default();
-    
-    
-    FMSTR_SerialSetBaseAddress((LPUART_Type*)LPUART0);
+    v2_encoder_cal_stats_t stats;
+    v2_encoder_raw_sample_t encoder_sample;
+    uint32_t status = V2_ENCODER_STATUS_OK;
+    uint32_t i;
+
+    fm_cal_enable = 0U;
+    fm_cal_done = 0U;
+    fm_cal_progress = 1U;
+    fm_cal_state = FM_CAL_STATE_RUNNING;
+    fm_cal_status = V2_ENCODER_STATUS_OK;
+    fm_encoder_status = V2_ENCODER_STATUS_OK;
+
+    v2_encoder_cal_stats_init(&stats);
+
+    for (i = 0U; i < V2_ENCODER_CAL_SAMPLE_COUNT; i++)
+    {
+        FMSTR_Poll();
+        adc_result = adc_read();
+        encoder_sample = adc_to_encoder_sample(&adc_result);
+        v2_encoder_cal_stats_accumulate(&stats, &encoder_sample);
+
+        fm_cal_progress = (uint16_t)(((i + 1U) * 100U) / V2_ENCODER_CAL_SAMPLE_COUNT);
+        if (fm_cal_progress == 0U)
+        {
+            fm_cal_progress = 1U;
+        }
+        SDK_DelayAtLeastUs(CAL_SAMPLE_DELAY_US, CLOCK_GetFreq(kCLOCK_CoreSysClk));
+    }
+
+    if (v2_encoder_cal_stats_build(&stats, &s_v2_calibration, &status))
+    {
+        encoder_sample = average_encoder_sample(ZERO_AVERAGE_SAMPLES, CAL_SAMPLE_DELAY_US);
+        if (v2_encoder_capture_zero(&s_v2_calibration, &encoder_sample, &status))
+        {
+            v2_encoder_state_init(&s_v2_state);
+            fm_cal_done = 1U;
+            fm_cal_progress = 100U;
+            fm_cal_state = FM_CAL_STATE_DONE;
+            fm_cal_status = V2_ENCODER_STATUS_OK;
+            fm_encoder_valid = 1U;
+            fm_encoder_status = V2_ENCODER_STATUS_OK;
+        }
+        else
+        {
+            fm_cal_done = 0U;
+            fm_cal_progress = 100U;
+            fm_cal_state = FM_CAL_STATE_FAILED;
+            fm_cal_status = status;
+            fm_encoder_valid = 0U;
+            fm_encoder_status = status;
+        }
+    }
+    else
+    {
+        fm_cal_done = 0U;
+        fm_cal_progress = 100U;
+        fm_cal_state = FM_CAL_STATE_FAILED;
+        fm_cal_status = status;
+        fm_encoder_valid = 0U;
+        fm_encoder_status = status;
+    }
+}
+
+static void capture_current_zero_fm(void)
+{
+    v2_encoder_raw_sample_t zero_sample;
+    uint32_t status = V2_ENCODER_STATUS_OK;
+
+    if (!s_v2_calibration.valid)
+    {
+        return;
+    }
+
+    zero_sample = average_encoder_sample(ZERO_AVERAGE_SAMPLES, CAL_SAMPLE_DELAY_US);
+    if (v2_encoder_capture_zero(&s_v2_calibration, &zero_sample, &status))
+    {
+        v2_encoder_state_init(&s_v2_state);
+        fm_encoder_valid = 1U;
+        fm_encoder_status = V2_ENCODER_STATUS_OK;
+    }
+    else
+    {
+        fm_encoder_status = status;
+    }
+}
+
+static void update_encoder_result(void)
+{
+    v2_encoder_raw_sample_t encoder_sample;
+
+    adc_result = adc_read();
+    encoder_sample = adc_to_encoder_sample(&adc_result);
+    v2_encoder_process_with_diag(&s_v2_state, &s_v2_calibration, &encoder_sample, &v2_result, &v2_diag);
+    fm_encoder_valid = s_v2_calibration.valid ? 1U : 0U;
+    fm_encoder_status = v2_result.status;
+    copy_v2_to_legacy_result(&adc_result, &v2_result, &encoder_result);
+}
+
+static void init_freemaster(void)
+{
+    FMSTR_SerialSetBaseAddress((LPUART_Type *)LPUART0);
     FMSTR_Example_Init();
-    
+
 #if FMSTR_SHORT_INTR || FMSTR_LONG_INTR
     NVIC_SetPriority(LPUART0_IRQn, 0);
     EnableIRQ(LPUART0_IRQn);
 #endif
-    stream_encoder_loop();
 }
 
-
-
-static void perform_encoder_calibration(void)
+static void run_freemaster_loop(void)
 {
-    printf("\r\n=== Auto Calibration ===\r\n");
-    printf("Rotate encoder slowly for one full circle...\r\n");
-    printf("Press any key to start...\r\n");
-    GETCHAR();
+    while (1)
+    {
+        FMSTR_Poll();
 
-    uint16_t sin_min = 65535, sin_max = 0;
-    uint16_t cos_min = 65535, cos_max = 0;
-
-    double sum_sin = 0.0;
-    double sum_cos = 0.0;
-    double sum_sin2 = 0.0;
-    double sum_cos2 = 0.0;
-    double sum_sincos = 0.0;
-    uint32_t sample_count = 0;
-
-    uint32_t stride = (CAL_TARGET_SAMPLES > 0) ? (CAL_TOTAL_ITERATIONS / CAL_TARGET_SAMPLES) : 1U;
-    if (stride == 0U) {
-        stride = 1U;
-    }
-
-    for (uint32_t i = 0; i < CAL_TOTAL_ITERATIONS; i++) {
-        adc_sample_result_t result = adc_read();
-
-        if (result.opamp0_out < sin_min) sin_min = result.opamp0_out;
-        if (result.opamp0_out > sin_max) sin_max = result.opamp0_out;
-        if (result.opamp1_out < cos_min) cos_min = result.opamp1_out;
-        if (result.opamp1_out > cos_max) cos_max = result.opamp1_out;
-
-        if ((i % stride) == 0U && sample_count < CAL_TARGET_SAMPLES) {
-            double sin_raw = (double)result.opamp0_out;
-            double cos_raw = (double)result.opamp1_out;
-            sum_sin += sin_raw;
-            sum_cos += cos_raw;
-            sum_sin2 += sin_raw * sin_raw;
-            sum_cos2 += cos_raw * cos_raw;
-            sum_sincos += sin_raw * cos_raw;
-            sample_count++;
+        if (fm_cal_enable != 0U)
+        {
+            perform_v2_calibration_fm();
         }
 
-        if ((i % CAL_PROGRESS_INTERVAL) == 0U) {
-            printf("  Progress: %lu/%lu\r\n", (unsigned long)i, (unsigned long)CAL_TOTAL_ITERATIONS);
+        if (fm_reset_ctrl != 0U)
+        {
+            const uint8_t cmd = fm_reset_ctrl;
+
+            fm_reset_ctrl = 0U;
+            if (cmd == 1U)
+            {
+                NVIC_SystemReset();
+            }
         }
 
-        SDK_DelayAtLeastUs(100, CLOCK_GetFreq(kCLOCK_CoreSysClk));
-    }
+        if (fm_zero_ctrl != 0U)
+        {
+            const uint8_t cmd = fm_zero_ctrl;
 
-    if (sample_count < 16U) {
-        printf("Not enough samples (%lu). Falling back to min/max calibration.\r\n", (unsigned long)sample_count);
-        encoder_calibrate(sin_min, sin_max, cos_min, cos_max);
-        return;
-    }
-
-    double invN = 1.0 / (double)sample_count;
-    double mean_sin = sum_sin * invN;
-    double mean_cos = sum_cos * invN;
-    double var_sin = (sum_sin2 * invN) - mean_sin * mean_sin;
-    double var_cos = (sum_cos2 * invN) - mean_cos * mean_cos;
-    double cov_sc = (sum_sincos * invN) - mean_sin * mean_cos;
-
-    const double min_var = 1.0;
-    if (var_sin < min_var) var_sin = min_var;
-    if (var_cos < min_var) var_cos = min_var;
-
-    float a = (float)var_sin;
-    float b = (float)cov_sc;
-    float d = (float)var_cos;
-
-    float trace = a + d;
-    float delta = trace * 0.5f * trace * 0.5f - (a * d - b * b);
-    if (delta < 0.0f) delta = 0.0f;
-    float root = sqrtf(delta);
-    float lambda1 = trace * 0.5f + root;
-    float lambda2 = trace * 0.5f - root;
-
-    if (lambda1 < 1e-6f) lambda1 = 1e-6f;
-    if (lambda2 < 1e-6f) lambda2 = 1e-6f;
-
-    float v1x = 1.0f, v1y = 0.0f;
-    float v2x = 0.0f, v2y = 1.0f;
-
-    if (fabsf(b) > 1e-3f) {
-        v1x = lambda1 - d;
-        v1y = b;
-        float norm = sqrtf(v1x * v1x + v1y * v1y);
-        if (norm > 1e-6f) {
-            v1x /= norm;
-            v1y /= norm;
-        } else {
-            v1x = 1.0f;
-            v1y = 0.0f;
+            fm_zero_ctrl = 0U;
+            if (cmd == 1U)
+            {
+                capture_current_zero_fm();
+            }
         }
-        v2x = -v1y;
-        v2y = v1x;
-    } else {
-        if (a < d) {
-            v1x = 0.0f; v1y = 1.0f;
-            v2x = 1.0f; v2y = 0.0f;
-        }
+
+        update_encoder_result();
+        SDK_DelayAtLeastUs(FMSTR_LOOP_DELAY_US, CLOCK_GetFreq(kCLOCK_CoreSysClk));
     }
-
-    float scale1 = 1.0f / sqrtf(2.0f * lambda1);
-    float scale2 = 1.0f / sqrtf(2.0f * lambda2);
-
-    encoder_calibration_t cal;
-    cal.sin_center = (float)mean_sin;
-    cal.cos_center = (float)mean_cos;
-    cal.transform[0][0] = scale1 * v1x;
-    cal.transform[0][1] = scale1 * v1y;
-    cal.transform[1][0] = scale2 * v2x;
-    cal.transform[1][1] = scale2 * v2y;
-
-    float det_t = cal.transform[0][0] * cal.transform[1][1] - cal.transform[0][1] * cal.transform[1][0];
-    if (det_t < 0.0f) {
-        cal.transform[1][0] = -cal.transform[1][0];
-        cal.transform[1][1] = -cal.transform[1][1];
-    }
-
-    if (!isfinite(cal.transform[0][0]) || !isfinite(cal.transform[0][1]) ||
-        !isfinite(cal.transform[1][0]) || !isfinite(cal.transform[1][1])) {
-        printf("Ellipse fit produced invalid values. Falling back to min/max calibration.\r\n");
-        encoder_calibrate(sin_min, sin_max, cos_min, cos_max);
-        return;
-    }
-
-    printf("Collected %lu samples for ellipse fit.\r\n", (unsigned long)sample_count);
-    printf("  Means: sin=%.3f cos=%.3f\r\n", cal.sin_center, cal.cos_center);
-    printf("  Variance: sin=%.3f cos=%.3f cov=%.3f\r\n", a, d, b);
-
-    encoder_apply_calibration(&cal);
-
-    printf("Align mechanical zero position and press any key...\r\n");
-    GETCHAR();
-
-    uint64_t sin_acc = 0;
-    uint64_t cos_acc = 0;
-    for (uint32_t i = 0; i < CAL_ZERO_AVG_SAMPLES; i++) {
-        adc_sample_result_t result = adc_read();
-        sin_acc += result.opamp0_out;
-        cos_acc += result.opamp1_out;
-        SDK_DelayAtLeastUs(200, CLOCK_GetFreq(kCLOCK_CoreSysClk));
-    }
-
-    uint16_t sin_avg = (uint16_t)((sin_acc + CAL_ZERO_AVG_SAMPLES / 2U) / CAL_ZERO_AVG_SAMPLES);
-    uint16_t cos_avg = (uint16_t)((cos_acc + CAL_ZERO_AVG_SAMPLES / 2U) / CAL_ZERO_AVG_SAMPLES);
-
-    encoder_result_t zero_result;
-    encoder_process(sin_avg, cos_avg, &zero_result);
-    float zero_angle = zero_result.angle_deg;
-    encoder_init();
-    encoder_set_zero_deg(zero_angle);
-
-    printf("=== Calibration Complete ===\r\n");
-    printf("OPAMP0_OUT (Sin): [%u, %u]\r\n", sin_min, sin_max);
-    printf("OPAMP1_OUT (Cos): [%u, %u]\r\n", cos_min, cos_max);
-    printf("Zero offset set to %.2f deg\r\n\r\n", zero_angle);
 }
-
-
-
 
 int main(void)
 {
-    /* Init board hardware */
     Hardware_Init();
-    
-   // CLOCK_SetupExtClocking(8*1000*1000);              // Enable the 8MHz external crystal
+    adc_init();
 
-    print_system_clocks();
-    
-    run_freemaster_mode();
-    /* unreachable: mode handlers are blocking */
-    while (1) {}
+    v2_encoder_calibration_set_defaults(&s_v2_calibration);
+    v2_encoder_state_init(&s_v2_state);
+
+    init_freemaster();
+    run_freemaster_loop();
 }
-
 
 #if FMSTR_SHORT_INTR || FMSTR_LONG_INTR
-
-void LPUART2_IRQHandler(void)
-{
-    FMSTR_SerialIsr();
-}
 
 void LPUART0_IRQHandler(void)
 {
@@ -413,42 +262,9 @@ void LPUART0_IRQHandler(void)
 
 #endif
 
-
 void HardFault_Handler(void)
-{
-    printf("HardFault_Handler\r\n");
-    while(1);
-}
-
-
-static void stream_encoder_loop(void)
 {
     while (1)
     {
-        FMSTR_Poll();
-        if (fm_cal_enable) {
-            fm_cal_enable = 0;
-            perform_encoder_calibration_fm();
-        }
-        if (fm_reset_ctrl != 0u) {
-            uint8_t cmd = fm_reset_ctrl;
-            fm_reset_ctrl = 0;
-            if (cmd == 1u) {
-                NVIC_SystemReset();
-            }
-        }
-        if (fm_zero_ctrl != 0u) {
-            uint8_t z = fm_zero_ctrl;
-            fm_zero_ctrl = 0u;
-            if (z == 1u) {
-                encoder_tare_zero();
-            } else if (z == 2u) {
-                encoder_clear_zero();
-            }
-        }
-        encoder_set_direction(fm_direction ? -1 : +1);
-        sampler_copy_latest(&encoder_result);
-        sampler_copy_latest_raw(&adc_result);
-        SDK_DelayAtLeastUs(10000, CLOCK_GetFreq(kCLOCK_CoreSysClk));
     }
 }

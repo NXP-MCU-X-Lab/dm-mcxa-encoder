@@ -1,123 +1,177 @@
-# NXP MCXA344 电感式位置编码器
+# NXP MCXA344 V2 Inductive Encoder Demo
 
-高精度电感式位置编码器，基于 NXP MCXA344（Cortex‑M33）实现。系统对电感传感器的差分 sin/cos 信号进行校准与角度计算，支持多圈计数，并提供 FreeMASTER 实时可视化界面。
+本工程当前用于验证 MCXA344 上的 V2 双码道电感式编码器。当前主流程基于 FreeMASTER：先确认 A1/A2 四路 OPAMP/ADC 数据，再做 RAM 在线校准，最后输出单圈绝对角度。
 
 ![](./img/3.png)
 
 [TOC]
 
-## 概览
-- 传感器：差分电感式 sin/cos 输出，片上 OPAMP 调理。
-- 采样：双 16 位 ADC 同步采样，CTIMER1 周期中断驱动。
-- 计算：2×2 椭圆校正 + 高精度 `atan2` + 多圈展开 + 自适应滤波。
-- 可视化：FreeMASTER 桌面 + Web 前端（`freemaster/index.html`）。
-- 性能：CTIMER1 基于周期计数的微秒级耗时统计（ADC/atan2/算法/ISR），Web 前端进度条可视化。
+## 当前状态
 
-## 硬件结构框图
+- 硬件目标：V2 双码道编码器，不再按 V1 单码道算法作为主验证路径。
+- 码道配置：当前固件默认 `A1 = 15` 周期、`A2 = 16` 周期，方向为 `dir16 = +1`、`dir15 = +1`。
+- 角度算法：每个码道独立计算电角度，再用 16/15 Vernier/Nonius 相位差得到单圈机械角。
+- 上位机：沿用 V1 FreeMASTER 工程，`encoder_result.angle_deg/counts` 作为兼容输出；V2 调试优先看 `v2_result.*` 和 `v2_diag.*`。
+- 校准参数：只保存在 RAM，复位后需要重新校准。
+
+当前阶段不承诺 flash 参数保存、多圈累计、速度输出、温漂补偿或 T-Format 协议输出。
+
+## 硬件与 ADC 映射
+
+V2 使用混合模拟前端：A1 使用 MCU 内部 OPAMP，A2 使用外置 `TLV9062`。
+
+| 信号 | 前端 | MCU/ADC 通道 | FreeMASTER 字段 |
+| --- | --- | --- | --- |
+| A1 SIN | `OPAMP0_OUT` | `ADC0_A2` / P2_15 | `adc_result.a1_sin_raw` |
+| A1 COS | `OPAMP1_OUT` | `ADC1_A2` / P2_19 | `adc_result.a1_cos_raw` |
+| A2 SIN | `TLV9062 A2_OPA0_OUT` | `ADC1_A3` / P2_6 | `adc_result.a2_sin_raw` |
+| A2 COS | `TLV9062 A2_OPA1_OUT` | `ADC0_A7` / P2_7 | `adc_result.a2_cos_raw` |
+
+兼容旧 FreeMASTER Watch，`adc_result.opamp0_out/opamp1_out` 仍保留为 A1 SIN/COS 的别名，只用于兼容，不代表 V2 全部四路输入。
+
+## V2 角度算法
+
+当前实现位于 `source/app_encoder_v2.*`，主配置在 `source/app_encoder_v2.h`：
+
+```c
+#define V2_ENCODER_CONFIG_MAPPING V2_ENCODER_MAPPING_A1_15_A2_16
+#define V2_ENCODER_CONFIG_DIR16   (1)
+#define V2_ENCODER_CONFIG_DIR15   (1)
 ```
-[Inductive Sensor]
-    └─> OPAMP0 (Sin) ──┐
-                        ├─> ADC0/ADC1 同步采样 ──> CTIMER1 周期 ISR (10kHz)
-    └─> OPAMP1 (Cos) ──┘                                  │
-                                                          ├─ 2×2 椭圆校正（去中心+线性变换）
-                                                          ├─ 幅值门限（magnitude ≥ 0.6）
-                                                          ├─ 角度计算（高精度 atan2）
-                                                          ├─ 多圈展开（4 电角/机械圈）
-                                                          └─ 自适应滤波/限幅/死区/量化（16bit）
 
-                                      ┌─ LPUART0 @115200（FreeMASTER PC）
-[MCXA344] ──> Encoder Result/ADC ─────┤
-                                      └─ LPUART2（可选：485/T‑format 从机示例）
+算法流程：
+
+1. 采集 A1/A2 两组 SIN/COS raw ADC。
+2. 在线校准采集 8192 组样本，分别计算 A1/A2 的中心点和 SIN/COS 幅值缩放。
+3. 对每个码道执行去中心、幅值归一和 `atan2(SIN, COS)`，得到 A1/A2 电角度。
+4. 按配置把 A1/A2 映射成 15/16 周期码道。
+5. 计算 `p16` 与 `p15` 的零点修正和方向修正。
+6. 输出单圈机械角：
+
+```text
+angle = wrap(p16 - p15)
 ```
 
-![](./img/2.png)
+因为 16 周期与 15 周期相差 1，理想情况下 `p16 - p15` 正好对应一圈机械绝对角。
 
-![](./img/1.png)
+一致性检查会比较 `angle * 16` 与 16 周期电角、`angle * 15` 与 15 周期电角。如果幅值过低、ADC 贴边、未校准或双码道相位不一致，`v2_result.status` 会置位，主角度保持上一次有效值。
 
-### 引脚与接口（摘要）
+## FreeMASTER 使用流程
 
-- OPAMP0_OUT → P2_15 (`ADC0_A2`)，OPAMP1_OUT → P2_19 (`ADC1_A2`)
-- 温度传感器 → `ADC0_A26`
-- FreeMASTER/调试 UART：`LPUART0 @ 115200`（`Hardware_DebugConsoleInit`）
-- 可选 RS‑485 接口：`LPUART2`（`UART485_SetTxRts`），从机示例见 `app_tformat.*`
-- 测试引脚：P1_8（`TestPin_*`），在采样 ISR 期间置高以示波器观察时间包络；心跳指示：P1_11（500ms 翻转）。
+连接参数：
 
-## 算法原理
-- 信号模型与畸变来源
-  - 原始：`sin = A_s·sin(θ) + o_s`，`cos = A_c·cos(θ) + o_c`。
-  - 受幅值不一致、相位偏差、交叉耦合影响，轨迹在 `(sin, cos)` 平面呈椭圆而非单位圆。
-- 去中心与线性变换（2×2）
-  - 以样本均值 `(sin_center, cos_center)` 去除 DC 偏置，得到居中向量 `x`。
-  - 对居中数据估计协方差矩阵 `Σ`，特征分解得到主轴与尺度；构造 2×2 变换 `T` 使 `T·x` 近似单位圆。
-  - 实现细节：对小样本或非法数值回退到最小/最大幅值标定；保证 `det(T) > 0` 的右手坐标系。
-- 幅值门限与径向归一
-  - 计算变换后的幅值 `m = sqrt(s'^2 + c'^2)`，当 `m < 0.6` 时冻结输出以抑制低信噪比抖动。
-  - 正常工作时对 `(s', c')` 做径向归一，提升角度稳定性。
-- 角度计算与数值稳定
-  - 使用片上 MAU 的高精度 `atan2`（`mau_atan2.*`），计算电角 `θ_e ∈ [0, 360)`。
-- 多圈展开与机械角
-  - 配置 `ENCODER_ELEC_CYCLES_PER_REV = 4`，跟踪电角穿越次数，得到机械角与多圈计数。
-  - 支持方向切换与零位设置（tare/clear），零位仅影响显示角不影响圈计数。
-- 自适应滤波、限速与死区
-  - 采样周期 `Ts = 0.0001 s`（10kHz），采用简洁的 α‑β 跟踪器，随速度自适应抑制抖动。
-  - 新息限幅（例如 20°）、最大角速度限制、输出死区与 16 位量化（0.0055°/count）。
-- 温度采样与补偿
-  - 每 `TEMP_SAMPLE_INTERVAL = 10k` 次采样读取一次温度，预留热漂补偿接口。
+- UART：`LPUART0`
+- 波特率：`115200`
+- 格式：`8N1`
 
-## 快速上手
-- 硬件准备
-  - MCXA344 开发板、电感式传感器差分接入、3.3V 供电。
-  - 连接 `LPUART0` 至 PC（115200），可选连接 `LPUART2`（485）。
-- 软件构建（Keil MDK‑ARM）
-  - 打开 `ind_encoder.uvprojx` → 选择目标 → 编译→ 下载。
-- 上电启动与默认模式
-  - 默认运行 FreeMASTER 模式（`main.c` 中 `run_freemaster_mode()`）。
-  - 系统时钟打印后启动采样（CTIMER1 10kHz）。
+推荐 bring-up 顺序：
 
-## 使用与调试（含 FreeMASTER）
-- 连接参数
-  - `LPUART0 @ 115200, 8N1`，无流控。
-- FreeMASTER 桌面端
-  - 安装 NXP FreeMASTER（Windows）。
-  - 选择串口（LPUART0 对应 COM），波特率设为 `115200`，连接设备。
-  - 使用 TSA 自动映射变量（项目已开启 TSA），或加载 `freemaster/digital_encoder.pmpx`。
-- Web 前端（`freemaster/index.html`）
-  - 页面会通过 WebSocket 连接到 FreeMASTER，显示：角度/计数/转速/温度、多圈计数、校准矩阵。
-  - 操作：
-    - `Start Calibration`：触发在线椭圆拟合并自动应用；进度实时显示。
-    - `Zero Here / Clear Zero`：设置或清除零位。
-    - `Direction`：勾选切换正/反方向（内部用 `fm_direction`）。
-  - 性能卡片：显示 `ADC/atan2(MAU)/encoder algo/total(ISR)` 四项耗时（单位 µs），进度条按 10kHz 采样周期（100µs）缩放。
+1. 连接 FreeMASTER，加载现有 `freemaster/digital_encoder.pmpx`。
+2. 先观察四路 raw：
+   - `adc_result.a1_sin_raw`
+   - `adc_result.a1_cos_raw`
+   - `adc_result.a2_sin_raw`
+   - `adc_result.a2_cos_raw`
+3. 缓慢转动转子，确认四路都有周期变化，且没有长时间贴近 0 或 65535。
+4. 写 `fm_cal_enable = 1`，或点击界面里的 Online Calibration。
+5. 在 `fm_cal_progress` 从 0 到 100 期间，慢慢转动转子至少一整圈。
+6. `fm_cal_done = 1` 后，观察：
+   - `encoder_result.angle_deg`
+   - `encoder_result.angle_counts`
+   - `v2_result.angle_deg`
+   - `v2_result.status`
+7. 如果需要重新设置当前机械零点，校准完成后写 `fm_zero_ctrl = 1`。
 
-## 时间测量与性能
-- 计时基准
-  - 使用 `CTIMER1` 作为采样与计时统一基准，周期 10kHz（100µs）。
-  - 在 ISR 内读取 `CTIMER1->TC` 计数差，转换为微秒：`us = ticks * 1e6 / f_timer`。
-  
-- 指标定义与采集点
-  - `g_perf.adc_us`：ADC 触发与读取耗时；在采样 ISR 内记录起止计数。
-  - `g_perf.atan2_us`：`MAU atan2` 计算耗时；在角度计算前后读取计数并记录差值。
-  - `g_perf.algo_us`：编码器算法（归一化、展开、滤波、量化）总耗时，不含 ADC。
-  - `g_perf.isr_us`：采样 ISR 总耗时（含 ADC+算法）。
-  
-  | 测试项        | 值(us) | 描述                                         |
-  | ------------- | ------ | -------------------------------------------- |
-  | adc_us        | 4      | sin/cos ADC采样所需时间                      |
-  | atan2_us      | <<1    | 经过MAU加速的atan2所需时间                   |
-  | algo_us       | 2      | 编码器核心算法(椭圆矫正,多圈展开,滤波,输出)  |
-  | (total)isr_us | ~7     | 编码器运算加总(从进入定时中断到中断处理完毕) |
+校准结束时固件会自动捕获当前点作为临时零点；后续也可以通过 `fm_zero_ctrl` 重新捕获零点。
 
-## 性能规格
-- 采样/更新率：`10kHz`（`SAMPLE_FRQ = 10*1000`）。
-- ADC 分辨率：16 位
-- 角度分辨率：16 位（约 0.0055°/count）。
-- 多圈范围：`int32_t` 计数（±2,147,483,647）。
+## 关键 FreeMASTER 变量
 
-## 参考变量（FreeMASTER）
-- `encoder_result.angle_deg`：机械角（度）。
-- `encoder_result.angle_counts`：量化角（0..65535）。
-- `encoder_result.turns`：多圈计数。
-- `encoder_result.speed_rpm / speed_dps`：转速（RPM/度每秒）。
-- `encoder_result.magnitude`：信号幅值质量指标。
-- `adc_result.temperature`：温度（°C）。
-- `g_perf.adc_us / atan2_us / algo_us / isr_us`：采样/计算/算法/ISR 耗时（µs）。
+ADC 与电压：
+
+- `adc_result.a1_sin_raw / a1_sin_voltage`
+- `adc_result.a1_cos_raw / a1_cos_voltage`
+- `adc_result.a2_sin_raw / a2_sin_voltage`
+- `adc_result.a2_cos_raw / a2_cos_voltage`
+- `adc_result.temperature`
+
+兼容角度输出：
+
+- `encoder_result.angle_deg`
+- `encoder_result.angle_counts`
+- `encoder_result.magnitude`
+- `encoder_result.elec_angle_deg`
+
+V2 调试输出：
+
+- `v2_result.angle_deg`
+- `v2_result.angle_counts`
+- `v2_result.phase16_deg`
+- `v2_result.phase15_deg`
+- `v2_result.coarse_deg`
+- `v2_result.mag16`
+- `v2_result.mag15`
+- `v2_result.status`
+- `v2_diag.mapping`
+- `v2_diag.dir16`
+- `v2_diag.dir15`
+- `v2_diag.phase16_error_deg`
+- `v2_diag.phase15_error_deg`
+- `v2_diag.phase_a1_deg`
+- `v2_diag.phase_a2_deg`
+
+校准控制：
+
+- `fm_cal_enable`：写 1 开始 RAM 在线校准。
+- `fm_cal_done`：1 表示本次校准成功。
+- `fm_cal_progress`：0..100。
+- `fm_cal_state`：0 idle，1 running，2 done，3 failed。
+- `fm_cal_status`：校准失败或状态码。
+- `fm_zero_ctrl`：写 1 捕获当前机械零点。
+- `fm_reset_ctrl`：写 1 软件复位。
+
+`fm_direction`、`encoder_result.turns`、`encoder_result.speed_rpm/speed_dps` 当前仅保留兼容入口，不作为 V2 阶段验收目标。
+
+## 状态码速查
+
+`v2_result.status` 和 `fm_encoder_status` 使用位标志：
+
+| Bit | 含义 |
+| --- | --- |
+| `0x01` | 未校准 |
+| `0x02` | 16 周期码道幅值过低 |
+| `0x04` | 15 周期码道幅值过低 |
+| `0x08` | ADC 贴边 |
+| `0x10` | 双码道相位不一致 |
+| `0x20` | 校准失败 |
+| `0x40` | 保持上一次有效角度 |
+
+正常输出时状态应为 `0x00`。
+
+## 构建与验证
+
+Keil 构建：
+
+```powershell
+C:\Keil_v5\UV4\UV4.exe -b ind_encoder.uvprojx -t ind_encoder
+```
+
+Host 算法测试：
+
+```powershell
+gcc -std=c99 -Wall -Wextra -Isource tests/test_app_encoder_v2.c source/app_encoder_v2.c -lm -o debug/test_app_encoder_v2.exe
+debug/test_app_encoder_v2.exe
+```
+
+文档/补丁检查：
+
+```powershell
+git diff --check -- README.md
+```
+
+## 当前限制
+
+- 校准参数不写 flash，复位后重新校准。
+- 当前只输出单圈绝对角，不做断电保持的多圈计数。
+- 当前速度、转数和方向控制变量没有接入 V2 主算法。
+- 校准模型为中心点加 SIN/COS 幅值缩放，不是完整 2x2 椭圆拟合。
+- 若后续仍有规律性非线性误差，应继续从机械同心度、码道相位关系和更完整的椭圆/谐波补偿入手。
