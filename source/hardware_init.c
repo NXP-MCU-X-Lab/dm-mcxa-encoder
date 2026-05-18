@@ -23,10 +23,10 @@
 
 
 
-/* Test pin for ADC timing measurement */
+/* Test pin for ADC timing measurement (P3_0, driven low while ISR is busy) */
 #define TEST_PIN_GPIO       GPIO3
 #define TEST_PIN_PORT       PORT3
-#define TEST_PIN_NUM        10U
+#define TEST_PIN_NUM        0U
 
 #define HEARTBEAT_GPIO      GPIO3
 #define HEARTBEAT_PORT      PORT3
@@ -38,18 +38,16 @@
 
 
 
-/*! @brief Initialize test pin P1_8 for ADC timing measurement */
+/*! @brief Initialize TEST pin (P3_0) for ADC timing measurement */
 void TestPin_Init(void)
 {
     gpio_pin_config_t pin_config = {
         .pinDirection = kGPIO_DigitalOutput,
-        .outputLogic = 0  /* Start with low level */
+        .outputLogic = 1  /* Idle high; ISR drives low while busy */
     };
-    
-    /* Configure P1_8 as GPIO output */
+
     PORT_SetPinMux(TEST_PIN_PORT, TEST_PIN_NUM, kPORT_MuxAsGpio);
     GPIO_PinInit(TEST_PIN_GPIO, TEST_PIN_NUM, &pin_config);
-    
 }
 
 /* Free-running millisecond tick incremented by SysTick (configured @ 1 kHz).

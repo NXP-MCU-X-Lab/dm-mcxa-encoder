@@ -202,9 +202,7 @@ static void adc_publish_if_complete(void)
 
     if (s_sample_callback != NULL)
     {
-        TestPin_Set();
         s_sample_callback(&sample);
-        TestPin_Clear();
     }
 }
 
@@ -237,6 +235,8 @@ static void adc_store_pair(ADC_Type *base, adc_pair_result_t *pair)
 
 static void adc_handle_irq(ADC_Type *base, adc_pair_result_t *pair)
 {
+    TestPin_Clear();  /* timing: low = ISR busy */
+
     const uint32_t flags = LPADC_GetStatusFlags(base);
 
     if ((flags & (uint32_t)kLPADC_ResultFIFO0OverflowFlag) != 0U)
@@ -245,10 +245,13 @@ static void adc_handle_irq(ADC_Type *base, adc_pair_result_t *pair)
         LPADC_ClearStatusFlags(base, (uint32_t)kLPADC_ResultFIFO0OverflowFlag);
         LPADC_DoResetFIFO(base);
         pair->valid = false;
+        TestPin_Set();  /* timing: high = idle (overrun path) */
         return;
     }
 
-    adc_store_pair(base, pair);
+    adc_store_pair(base, pair);  /* may invoke encoder decode callback */
+
+    TestPin_Set();  /* timing: high = idle */
 }
 
 /*******************************************************************************

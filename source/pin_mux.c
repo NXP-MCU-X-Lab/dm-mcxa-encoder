@@ -249,7 +249,7 @@ void Pins_Init(void)
                                                     .invertInput = kPORT_InputNormal,
                                                     /* Pin Control Register fields [15:0] are not locked */
                                                     .lockRegister = kPORT_UnlockRegister};
-    PORT_SetPinConfig(PORT3, 10, &port_gpio_config);
-    PORT_SetPinConfig(PORT3, 11, &port_gpio_config);
+    PORT_SetPinConfig(PORT3, 0, &port_gpio_config);   /* TEST pin (P3_0) for ADC timing */
+    PORT_SetPinConfig(PORT3, 11, &port_gpio_config);  /* Heartbeat LED (P3_11) */
 }
 
