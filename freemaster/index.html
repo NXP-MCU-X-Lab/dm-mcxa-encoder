@@ -265,6 +265,35 @@
         .status-done    { background: rgba(0, 255, 136, 0.18); color: var(--text-primary); }
         .status-warn    { background: rgba(255, 204, 102, 0.20); color: var(--text-primary); }
         .status-fail    { background: rgba(255, 107, 107, 0.22); color: var(--text-primary); }
+
+        .tab-bar {
+            display: flex;
+            gap: 8px;
+            max-width: 1100px;
+            margin: 0 auto 18px auto;
+            padding: 0 4px;
+        }
+        .tab-btn {
+            flex: 0 0 auto;
+            padding: 10px 22px;
+            border: 1px solid var(--card-border);
+            border-radius: 10px;
+            background: rgba(255,255,255,0.05);
+            color: var(--text-secondary);
+            font-size: 0.95em;
+            font-weight: 600;
+            letter-spacing: 0.5px;
+            cursor: pointer;
+            transition: background 0.2s ease, color 0.2s ease;
+        }
+        .tab-btn:hover { background: rgba(255,255,255,0.10); color: var(--text-primary); }
+        .tab-btn.active {
+            background: rgba(0, 204, 255, 0.18);
+            color: var(--text-primary);
+            border-color: rgba(0, 204, 255, 0.45);
+        }
+        .tab-panel { display: none; }
+        .tab-panel.active { display: block; }
     </style>
 </head>
 <body>
@@ -273,6 +302,12 @@
         <h1><span class="status-indicator" id="status-led"></span>NXP MCXA344 Dual-Track Inductive Encoder</h1>
     </div>
 
+    <div class="tab-bar">
+        <button class="tab-btn active" data-tab="demo">Demo</button>
+        <button class="tab-btn" data-tab="debug">Debug</button>
+    </div>
+
+    <div class="tab-panel active" data-tab="demo">
     <div class="data-grid">
 
         <!-- Current Angle -->
@@ -315,29 +350,6 @@
             <div class="error-message" id="angle-error"></div>
         </div>
 
-        <!-- Track Status -->
-        <div class="data-card">
-            <div class="card-title">Track Status</div>
-            <div class="kv-row"><span class="kv-label">Encoder valid</span><span id="enc-valid-badge" class="status-badge status-idle">Unknown</span></div>
-            <div class="kv-row"><span class="kv-label">Coarse angle</span><span class="kv-value" id="coarse-value">--°</span></div>
-            <div class="kv-row"><span class="kv-label">phase16</span><span class="kv-value" id="phase16-value">--°</span></div>
-            <div class="kv-row"><span class="kv-label">phase15</span><span class="kv-value" id="phase15-value">--°</span></div>
-            <div class="kv-row"><span class="kv-label">mag16</span><span class="kv-value" id="mag16-value">--</span></div>
-            <div class="kv-row"><span class="kv-label">mag15</span><span class="kv-value" id="mag15-value">--</span></div>
-            <div class="kv-row"><span class="kv-label">status</span><span class="kv-value" id="enc-status-value">--</span></div>
-            <div class="kv-row"><span class="kv-label">cal source</span><span class="kv-value" id="cal-source-value">--</span></div>
-            <div class="kv-row"><span class="kv-label">storage crc</span><span class="kv-value" id="storage-crc-value">--</span></div>
-            <div class="kv-row"><span class="kv-label">sample rate</span><span class="kv-value" id="sample-rate-value">--</span></div>
-            <div class="kv-row"><span class="kv-label">samples</span><span class="kv-value" id="sample-count-value">--</span></div>
-            <div class="kv-row"><span class="kv-label">overruns</span><span class="kv-value" id="overrun-count-value">--</span></div>
-            <div class="kv-row"><span class="kv-label">runtime trim</span><span class="kv-value" id="trim-state-value">--</span></div>
-            <div class="kv-row"><span class="kv-label">trim reason</span><span class="kv-value" id="trim-reason-value">--</span></div>
-            <div class="kv-row"><span class="kv-label">trim A1 dS / dC</span><span class="kv-value" id="trim-a1-value">--</span></div>
-            <div class="kv-row"><span class="kv-label">trim A2 dS / dC</span><span class="kv-value" id="trim-a2-value">--</span></div>
-            <div id="enc-status-flags" style="margin-top:8px; font-size:0.85em; color:var(--warn); min-height:1em"></div>
-            <div class="error-message" id="track-error"></div>
-        </div>
-
         <!-- Encoder Control -->
         <div class="data-card">
             <div class="card-title">Encoder Control</div>
@@ -357,6 +369,33 @@
                 <div class="progress-text" id="factory-cal-progress-text">0%</div>
             </div>
             <div class="error-message" id="zero-error"></div>
+        </div>
+
+    </div>
+    </div>
+
+    <div class="tab-panel" data-tab="debug">
+    <div class="data-grid">
+
+        <!-- Track Status -->
+        <div class="data-card">
+            <div class="card-title">Track Status</div>
+            <div class="kv-row"><span class="kv-label">Encoder valid</span><span id="enc-valid-badge" class="status-badge status-idle">Unknown</span></div>
+            <div class="kv-row"><span class="kv-label">Coarse angle</span><span class="kv-value" id="coarse-value">--°</span></div>
+            <div class="kv-row"><span class="kv-label">phase16</span><span class="kv-value" id="phase16-value">--°</span></div>
+            <div class="kv-row"><span class="kv-label">phase15</span><span class="kv-value" id="phase15-value">--°</span></div>
+            <div class="kv-row"><span class="kv-label">mag16</span><span class="kv-value" id="mag16-value">--</span></div>
+            <div class="kv-row"><span class="kv-label">mag15</span><span class="kv-value" id="mag15-value">--</span></div>
+            <div class="kv-row"><span class="kv-label">status</span><span class="kv-value" id="enc-status-value">--</span></div>
+            <div class="kv-row"><span class="kv-label">cal source</span><span class="kv-value" id="cal-source-value">--</span></div>
+            <div class="kv-row"><span class="kv-label">storage crc</span><span class="kv-value" id="storage-crc-value">--</span></div>
+            <div class="kv-row"><span class="kv-label">sample rate</span><span class="kv-value" id="sample-rate-value">--</span></div>
+            <div class="kv-row"><span class="kv-label">runtime trim</span><span class="kv-value" id="trim-state-value">--</span></div>
+            <div class="kv-row"><span class="kv-label">trim reason</span><span class="kv-value" id="trim-reason-value">--</span></div>
+            <div class="kv-row"><span class="kv-label">trim A1 dS / dC</span><span class="kv-value" id="trim-a1-value">--</span></div>
+            <div class="kv-row"><span class="kv-label">trim A2 dS / dC</span><span class="kv-value" id="trim-a2-value">--</span></div>
+            <div id="enc-status-flags" style="margin-top:8px; font-size:0.85em; color:var(--warn); min-height:1em"></div>
+            <div class="error-message" id="track-error"></div>
         </div>
 
         <!-- A1 Track Calibration (16 cycles) -->
@@ -384,6 +423,7 @@
         </div>
 
     </div>
+    </div>
 
     <div class="footer">
         <div>MCXA344 Dual-Track Inductive Encoder | Last Update: <span id="update-time">--</span></div>
@@ -409,7 +449,9 @@
 
         let pcm = null;
         let isConnected = false;
-        let updateInterval = null;
+        let demoInterval = null;
+        let debugInterval = null;
+        let activeTab = 'demo';
         let currentAngle = 0;
 
         function initializePCM() {
@@ -516,7 +558,7 @@
             }
         }
 
-        async function updateDisplay() {
+        async function updateDemoTab() {
             if (!isConnected) return;
 
             /* === Current angle (encoder_result.angle_deg + angle_counts) === */
@@ -537,6 +579,31 @@
                 document.getElementById('angle-error').textContent = 'Read failed: ' + error.message;
             }
 
+            /* === Factory calibration service state === */
+            try {
+                const state = await readVariable('fm_factory_cal_state', 'uint', 1);
+                const progress = await readVariable('fm_factory_cal_progress', 'uint', 1);
+                const status = await readVariable('fm_factory_cal_status', 'uint', 4);
+                const tag = document.getElementById('factory-cal-status');
+
+                tag.textContent = factoryCalStateName(state);
+                tag.className = 'status-badge ' +
+                    (Number(state) === 1 ? 'status-running' :
+                     Number(state) === 2 ? 'status-done' :
+                     Number(state) === 3 ? 'status-fail' : 'status-idle');
+                document.getElementById('factory-cal-progress-fill').style.width = Number(progress) + '%';
+                document.getElementById('factory-cal-progress-text').textContent =
+                    Number(progress) + '% / ' + formatHex32(status);
+            } catch (error) {
+                document.getElementById('zero-error').textContent = 'Factory cal read failed: ' + error.message;
+            }
+
+            document.getElementById('update-time').textContent = new Date().toLocaleTimeString();
+        }
+
+        async function updateDebugTab() {
+            if (!isConnected) return;
+
             /* === Track status (encoder_result + fm_encoder_valid + fm_encoder_status) === */
             try {
                 const coarse   = await readVariable('encoder_result.coarse_deg',   'float', 4);
@@ -547,8 +614,6 @@
                 const status   = await readVariable('encoder_result.status',       'uint',  4);
                 const valid    = await readVariable('fm_encoder_valid',       'uint',  1);
                 const rateHz   = await readVariable('encoder_sample_rate_hz', 'uint',  4);
-                const samples  = await readVariable('adc_sample_count',       'uint',  4);
-                const overruns = await readVariable('adc_overrun_count',      'uint',  4);
                 const calSource = await readVariable('encoder_calibration_source', 'uint', 4);
                 const storageOk = await readVariable('encoder_storage_crc_ok', 'uint', 4);
                 const trimEnabled = await readVariable('encoder_runtime_trim_enabled', 'uint', 1);
@@ -566,8 +631,6 @@
                 document.getElementById('cal-source-value').textContent = calSourceName(calSource);
                 document.getElementById('storage-crc-value').textContent = Number(storageOk) === 1 ? 'OK' : 'Invalid';
                 document.getElementById('sample-rate-value').textContent = rateHz + ' Hz';
-                document.getElementById('sample-count-value').textContent = samples;
-                document.getElementById('overrun-count-value').textContent = overruns;
                 document.getElementById('trim-state-value').textContent =
                     (Number(trimEnabled) === 1 ? 'Enabled' : 'Disabled') + ' / ' +
                     (Number(trimActive) === 1 ? 'Active' : 'Idle');
@@ -595,25 +658,6 @@
                 document.getElementById('track-error').textContent = '';
             } catch (error) {
                 document.getElementById('track-error').textContent = 'Read failed: ' + error.message;
-            }
-
-            /* === Factory calibration service state === */
-            try {
-                const state = await readVariable('fm_factory_cal_state', 'uint', 1);
-                const progress = await readVariable('fm_factory_cal_progress', 'uint', 1);
-                const status = await readVariable('fm_factory_cal_status', 'uint', 4);
-                const tag = document.getElementById('factory-cal-status');
-
-                tag.textContent = factoryCalStateName(state);
-                tag.className = 'status-badge ' +
-                    (Number(state) === 1 ? 'status-running' :
-                     Number(state) === 2 ? 'status-done' :
-                     Number(state) === 3 ? 'status-fail' : 'status-idle');
-                document.getElementById('factory-cal-progress-fill').style.width = Number(progress) + '%';
-                document.getElementById('factory-cal-progress-text').textContent =
-                    Number(progress) + '% / ' + formatHex32(status);
-            } catch (error) {
-                document.getElementById('zero-error').textContent = 'Factory cal read failed: ' + error.message;
             }
 
             /* === Per-track calibration === */
@@ -644,17 +688,35 @@
             document.getElementById(idPrefix + '-t11').textContent = arr[base + 4].toFixed(6);
         }
 
+        function restartIntervals() {
+            if (demoInterval)  { clearInterval(demoInterval);  demoInterval = null; }
+            if (debugInterval) { clearInterval(debugInterval); debugInterval = null; }
+            if (!isConnected) return;
+            if (activeTab === 'demo') {
+                demoInterval = setInterval(updateDemoTab, 100);
+                updateDemoTab();
+            } else {
+                debugInterval = setInterval(updateDebugTab, 500);
+                updateDebugTab();
+            }
+        }
+
+        function setActiveTab(name) {
+            activeTab = name;
+            document.querySelectorAll('.tab-btn').forEach(b =>
+                b.classList.toggle('active', b.dataset.tab === name));
+            document.querySelectorAll('.tab-panel').forEach(p =>
+                p.classList.toggle('active', p.dataset.tab === name));
+            restartIntervals();
+        }
+
         function startDataUpdate() {
-            if (updateInterval) clearInterval(updateInterval);
-            updateInterval = setInterval(updateDisplay, 100);
-            updateDisplay();
+            restartIntervals();
         }
 
         function stopDataUpdate() {
-            if (updateInterval) {
-                clearInterval(updateInterval);
-                updateInterval = null;
-            }
+            if (demoInterval)  { clearInterval(demoInterval);  demoInterval = null; }
+            if (debugInterval) { clearInterval(debugInterval); debugInterval = null; }
         }
 
         async function zeroHere() {
@@ -708,6 +770,8 @@
             document.getElementById('zero-here-button').addEventListener('click', zeroHere);
             document.getElementById('reset-button').addEventListener('click', mcuReset);
             document.getElementById('factory-cal-button').addEventListener('click', factoryCal);
+            document.querySelectorAll('.tab-btn').forEach(b =>
+                b.addEventListener('click', () => setActiveTab(b.dataset.tab)));
         });
 
         window.addEventListener('beforeunload', function() {

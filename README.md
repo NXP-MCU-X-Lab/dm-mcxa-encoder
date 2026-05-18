@@ -52,15 +52,16 @@ Factory calibration collects 8192 samples at an effective 1 kHz rate. Rotate thr
 
 Core outputs:
 
-- `encoder_result.angle_deg`
-- `encoder_result.angle_deg_raw`
-- `encoder_result.angle_deg_filtered`
+- `encoder_result.angle_deg`: published display angle, same value as `angle_deg_filtered`.
+- `encoder_result.angle_deg_raw`: fast unfiltered Vernier angle solution.
+- `encoder_result.angle_deg_filtered`: display angle from a Type-II tracking observer (software PLL) — the canonical resolver-to-digital loop (AD2S1210 / TI SPRAA94). Tracks constant-velocity rotation with zero steady-state phase lag. Tunable via `ENCODER_TRACKING_BW_HZ` (default 100 Hz) and `ENCODER_TRACKING_ZETA` (default 0.707).
+- `encoder_result.angular_velocity_dps`: angular velocity in deg/s, output by the tracking observer's velocity integrator.
 - `encoder_result.angle_counts`
 - `encoder_result.phase16_deg`
 - `encoder_result.phase15_deg`
 - `encoder_result.coarse_deg`
-- `encoder_result.mag16`
-- `encoder_result.mag15`
+- `encoder_result.mag16`: A1 track magnitude, smoothed by a first-order IIR (α = 0.1).
+- `encoder_result.mag15`: A2 track magnitude, smoothed by a first-order IIR (α = 0.1).
 - `encoder_result.status`
 
 Calibration and storage:

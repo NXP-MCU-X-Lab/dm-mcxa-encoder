@@ -20,7 +20,13 @@
 #define ENCODER_STATUS_CAL_STORAGE_INVALID (1UL << 7)
 #define ENCODER_STATUS_FACTORY_CAL_REQUIRED (1UL << 8)
 
-#define ENCODER_FILTER_ALPHA (0.25f)
+/* Type-II tracking observer (software PLL) for published angle, matching the
+ * canonical resolver-to-digital converter loop (AD2S1210 / TI SPRAA94 / etc.).
+ * - BW   sets closed-loop bandwidth in Hz.
+ * - ZETA sets damping ratio (0.707 = Butterworth, no overshoot).
+ * Kp/Ki are precomputed from BW, ZETA, and the ADC sample period at compile time. */
+#define ENCODER_TRACKING_BW_HZ      (100.0f)
+#define ENCODER_TRACKING_ZETA       (0.707f)
 #define ENCODER_RUNTIME_TRIM_STEP_LIMIT_COUNTS (1.0f)
 #define ENCODER_RUNTIME_TRIM_TOTAL_LIMIT_COUNTS (512.0f)
 
@@ -72,6 +78,7 @@ typedef struct _encoder_result
     float angle_deg;
     float angle_deg_raw;
     float angle_deg_filtered;
+    float angular_velocity_dps;     /* tracking observer velocity output (deg/s) */
     uint32_t angle_counts;
     float phase16_deg;
     float phase15_deg;
@@ -125,7 +132,8 @@ typedef struct _encoder_state
 {
     float last_angle_deg;
     float last_angle_raw_deg;
-    float filtered_angle_deg;
+    float filtered_angle_deg;       /* tracking observer angle state (theta_est) */
+    float tracking_velocity_dps;    /* tracking observer velocity integrator (deg/s) */
     uint32_t last_angle_counts;
     bool has_valid_angle;
     bool filter_initialized;

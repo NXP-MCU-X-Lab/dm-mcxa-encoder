@@ -31,7 +31,7 @@
 #define ADC_CH_A1_COS           2U
 #define ADC_CH_A2_SIN           3U
 #define ADC_CH_A2_COS           7U
-#define ADC_HW_AVG_SIGNAL       kLPADC_HardwareAverageCount2
+#define ADC_HW_AVG_SIGNAL       kLPADC_HardwareAverageCount8
 #define ADC_SAMPLE_TIME_SIGNAL  kLPADC_SampleTimeADCK5
 #define ADC_CLK_DIV             3
 
@@ -262,6 +262,10 @@ void adc_init(void)
 
     CLOCK_SetClockDiv(kCLOCK_DivADC, ADC_CLK_DIV);
     CLOCK_AttachClk(kFRO_HF_to_ADC);
+
+    /* Let VDDA and analog frontend settle before auto-calibration so the
+     * captured offset trim is not contaminated by power-on transients. */
+    delay_ms(100U);
 
     adc_init_peripheral(ADC0);
     adc_init_peripheral(ADC1);

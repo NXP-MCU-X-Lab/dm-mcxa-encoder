@@ -1,4 +1,5 @@
 #include "app_encoder.h"
+#include "app_adc.h"
 
 #include <float.h>
 #include <limits.h>
@@ -98,10 +99,31 @@ static float clamp_float(float value, float min_value, float max_value)
     return value;
 }
 
+#define ENCODER_MAG_FILTER_ALPHA (0.1f)
+
+static float s_mag_a1_filtered = 0.0f;
+static float s_mag_a2_filtered = 0.0f;
+static bool  s_mag_filter_inited = false;
+
+static float filter_mag(float raw, float *state)
+{
+    *state += ENCODER_MAG_FILTER_ALPHA * (raw - *state);
+    return *state;
+}
+
+/* Type-II tracking observer (software PLL) — canonical resolver / inductive
+ * encoder output stage. Closed-loop characteristic eq: s^2 + Kp*s + Ki,
+ * Kp = 2*zeta*wn, Ki = wn^2. Precomputed at compile time for the fixed
+ * 10 kHz ADC sample rate to keep the hot path branch-free. */
+#define ENCODER_TRACKING_DT      (1.0f / (float)ADC_SAMPLE_RATE_HZ)
+#define ENCODER_TRACKING_WN      (2.0f * ENCODER_PI * ENCODER_TRACKING_BW_HZ)
+#define ENCODER_TRACKING_KP      (2.0f * ENCODER_TRACKING_ZETA * ENCODER_TRACKING_WN)
+#define ENCODER_TRACKING_KI      (ENCODER_TRACKING_WN * ENCODER_TRACKING_WN)
+
 static float filter_published_angle(encoder_state_t *state, float raw_angle_deg)
 {
-    const float alpha = ENCODER_FILTER_ALPHA;
-    float filtered;
+    float error;
+    float omega;
 
     if (state == NULL)
     {
@@ -111,14 +133,17 @@ static float filter_published_angle(encoder_state_t *state, float raw_angle_deg)
     if (!state->filter_initialized)
     {
         state->filtered_angle_deg = wrap_deg(raw_angle_deg);
+        state->tracking_velocity_dps = 0.0f;
         state->filter_initialized = true;
         return state->filtered_angle_deg;
     }
 
-    filtered = wrap_deg(state->filtered_angle_deg +
-                        (signed_angle_error_deg(raw_angle_deg, state->filtered_angle_deg) * alpha));
-    state->filtered_angle_deg = filtered;
-    return filtered;
+    error = signed_angle_error_deg(raw_angle_deg, state->filtered_angle_deg);
+    state->tracking_velocity_dps += ENCODER_TRACKING_KI * error * ENCODER_TRACKING_DT;
+    omega = state->tracking_velocity_dps + (ENCODER_TRACKING_KP * error);
+    state->filtered_angle_deg = wrap_deg(state->filtered_angle_deg +
+                                         (omega * ENCODER_TRACKING_DT));
+    return state->filtered_angle_deg;
 }
 
 static bool adc_is_rail(uint16_t raw)
@@ -951,6 +976,7 @@ void encoder_process(encoder_state_t *state,
     result->angle_deg = 0.0f;
     result->angle_deg_raw = 0.0f;
     result->angle_deg_filtered = 0.0f;
+    result->angular_velocity_dps = 0.0f;
     result->angle_counts = 0U;
     result->phase16_deg = 0.0f;
     result->phase15_deg = 0.0f;
@@ -1017,8 +1043,14 @@ void encoder_process(encoder_state_t *state,
         {
             stabilize_vernier_branch(state, &best);
 
-            result->mag16 = mag_a1;
-            result->mag15 = mag_a2;
+            if (!s_mag_filter_inited)
+            {
+                s_mag_a1_filtered = mag_a1;
+                s_mag_a2_filtered = mag_a2;
+                s_mag_filter_inited = true;
+            }
+            result->mag16 = filter_mag(mag_a1, &s_mag_a1_filtered);
+            result->mag15 = filter_mag(mag_a2, &s_mag_a2_filtered);
             result->phase16_deg = best.p16;
             result->phase15_deg = best.p15;
             result->coarse_deg = best.coarse;
@@ -1047,6 +1079,7 @@ void encoder_process(encoder_state_t *state,
         const float raw_angle_deg = best.angle;
         result->angle_deg_raw = raw_angle_deg;
         result->angle_deg_filtered = filter_published_angle(state, raw_angle_deg);
+        result->angular_velocity_dps = state->tracking_velocity_dps;
         result->angle_deg = result->angle_deg_filtered;
         result->angle_counts = angle_to_counts(result->angle_deg);
 
