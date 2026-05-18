@@ -36,6 +36,10 @@ void TestPin_Set(void);
 void TestPin_Clear(void);
 void Heartbeat_Init(void);
 
+/* SysTick-driven millisecond delay (independent of SDK_DelayAtLeastUs). */
+extern volatile uint32_t g_systick_ms;
+void delay_ms(uint32_t ms);
+
 #if defined(__cplusplus)
 }
 #endif

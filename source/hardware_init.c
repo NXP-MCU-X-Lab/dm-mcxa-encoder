@@ -16,7 +16,6 @@
 #include "fsl_debug_console.h"
 #include "clock_config.h"
 #include "hardware_init.h"
-#include "app_perf.h"
 #include <stdbool.h>
 /*${header:end}*/
 
@@ -53,7 +52,10 @@ void TestPin_Init(void)
     
 }
 
-static volatile uint32_t s_heartbeat_ms_accum = 0U;
+/* Free-running millisecond tick incremented by SysTick (configured @ 1 kHz).
+ * Used by delay_ms() — independent of SDK_DelayAtLeastUs(), which has been
+ * observed to skip its busy-wait on this part. */
+volatile uint32_t g_systick_ms = 0U;
 
 void Heartbeat_Init(void)
 {
@@ -69,11 +71,19 @@ void Heartbeat_Init(void)
 
 void SysTick_Handler(void)
 {
-    s_heartbeat_ms_accum++;
-    if (s_heartbeat_ms_accum >= HEARTBEAT_TOGGLE_INTERVAL_MS)
+    g_systick_ms++;
+    if ((g_systick_ms % HEARTBEAT_TOGGLE_INTERVAL_MS) == 0U)
     {
-        s_heartbeat_ms_accum = 0U;
         GPIO_PortToggle(HEARTBEAT_GPIO, 1U << HEARTBEAT_PIN);
+    }
+}
+
+void delay_ms(uint32_t ms)
+{
+    uint32_t t0 = g_systick_ms;
+    while ((uint32_t)(g_systick_ms - t0) < ms)
+    {
+        /* spin */
     }
 }
 
@@ -121,7 +131,6 @@ void Hardware_Init(void)
     Hardware_DebugConsoleInit();
     Opamp_Init();
     TestPin_Init();
-    perf_init();
     Heartbeat_Init();
     
     mau_config_t cfg;

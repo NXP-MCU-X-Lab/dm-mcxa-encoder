@@ -27,7 +27,6 @@ extern volatile uint8_t fm_cal_state;
 extern volatile uint32_t fm_cal_status;
 extern volatile uint8_t fm_reset_ctrl;
 extern volatile uint8_t fm_zero_ctrl;
-extern volatile uint8_t fm_direction;
 extern volatile uint8_t fm_encoder_valid;
 extern volatile uint32_t fm_encoder_status;
 

@@ -11,12 +11,11 @@
 #include "freemaster_example.h"
 #include "app_adc.h"
 #include "app_encoder_v2.h"
-#include "app_perf.h"
 
 extern adc_sample_result_t adc_result;
-extern encoder_result_t encoder_result;
 extern v2_encoder_result_t v2_result;
 extern v2_encoder_diag_t v2_diag;
+extern float s_v2_cal_flat[14];
 
 
 volatile uint8_t fm_cal_enable;
@@ -26,7 +25,6 @@ volatile uint8_t fm_cal_state;
 volatile uint32_t fm_cal_status;
 volatile uint8_t fm_reset_ctrl;
 volatile uint8_t fm_zero_ctrl;
-volatile uint8_t fm_direction;
 volatile uint8_t fm_encoder_valid;
 volatile uint32_t fm_encoder_status;
 
@@ -55,43 +53,18 @@ FMSTR_TSA_TABLE_BEGIN(first_table)
     FMSTR_TSA_RO_VAR(fm_cal_status, FMSTR_TSA_UINT32)
     FMSTR_TSA_RW_VAR(fm_reset_ctrl, FMSTR_TSA_UINT8)
     FMSTR_TSA_RW_VAR(fm_zero_ctrl, FMSTR_TSA_UINT8)
-    FMSTR_TSA_RW_VAR(fm_direction, FMSTR_TSA_UINT8)
     FMSTR_TSA_RO_VAR(fm_encoder_valid, FMSTR_TSA_UINT8)
     FMSTR_TSA_RO_VAR(fm_encoder_status, FMSTR_TSA_UINT32)
 
     // ========== ADC Result Structure ==========
     FMSTR_TSA_STRUCT(adc_sample_result_t)
-        FMSTR_TSA_MEMBER(adc_sample_result_t, opamp0_out, FMSTR_TSA_UINT16)
-        FMSTR_TSA_MEMBER(adc_sample_result_t, opamp1_out, FMSTR_TSA_UINT16)
         FMSTR_TSA_MEMBER(adc_sample_result_t, a1_sin_raw, FMSTR_TSA_UINT16)
         FMSTR_TSA_MEMBER(adc_sample_result_t, a1_cos_raw, FMSTR_TSA_UINT16)
         FMSTR_TSA_MEMBER(adc_sample_result_t, a2_sin_raw, FMSTR_TSA_UINT16)
         FMSTR_TSA_MEMBER(adc_sample_result_t, a2_cos_raw, FMSTR_TSA_UINT16)
-        FMSTR_TSA_MEMBER(adc_sample_result_t, opamp0_out_voltage, FMSTR_TSA_FLOAT)
-        FMSTR_TSA_MEMBER(adc_sample_result_t, opamp1_out_voltage, FMSTR_TSA_FLOAT)
-        FMSTR_TSA_MEMBER(adc_sample_result_t, a1_sin_voltage, FMSTR_TSA_FLOAT)
-        FMSTR_TSA_MEMBER(adc_sample_result_t, a1_cos_voltage, FMSTR_TSA_FLOAT)
-        FMSTR_TSA_MEMBER(adc_sample_result_t, a2_sin_voltage, FMSTR_TSA_FLOAT)
-        FMSTR_TSA_MEMBER(adc_sample_result_t, a2_cos_voltage, FMSTR_TSA_FLOAT)
-        FMSTR_TSA_MEMBER(adc_sample_result_t, temperature, FMSTR_TSA_FLOAT)
 
     // ========== Global Variables ==========
     FMSTR_TSA_RO_VAR(adc_result, FMSTR_TSA_USERTYPE(adc_sample_result_t))
-
-    // ========== Encoder Result Structure ==========
-    FMSTR_TSA_STRUCT(encoder_result_t)
-        FMSTR_TSA_MEMBER(encoder_result_t, sin_raw, FMSTR_TSA_UINT16)
-        FMSTR_TSA_MEMBER(encoder_result_t, cos_raw, FMSTR_TSA_UINT16)
-        FMSTR_TSA_MEMBER(encoder_result_t, sin_norm, FMSTR_TSA_FLOAT)
-        FMSTR_TSA_MEMBER(encoder_result_t, cos_norm, FMSTR_TSA_FLOAT)
-        FMSTR_TSA_MEMBER(encoder_result_t, magnitude, FMSTR_TSA_FLOAT)
-        FMSTR_TSA_MEMBER(encoder_result_t, elec_angle_deg, FMSTR_TSA_FLOAT)
-        FMSTR_TSA_MEMBER(encoder_result_t, angle_deg, FMSTR_TSA_FLOAT)
-        FMSTR_TSA_MEMBER(encoder_result_t, turns, FMSTR_TSA_SINT32)
-        FMSTR_TSA_MEMBER(encoder_result_t, angle_counts, FMSTR_TSA_UINT16)
-        FMSTR_TSA_MEMBER(encoder_result_t, speed_dps, FMSTR_TSA_FLOAT)
-        FMSTR_TSA_MEMBER(encoder_result_t, speed_rpm, FMSTR_TSA_FLOAT)
-    FMSTR_TSA_RO_VAR(encoder_result, FMSTR_TSA_USERTYPE(encoder_result_t))
 
     // ========== V2 Encoder Debug Result ==========
     FMSTR_TSA_STRUCT(v2_encoder_result_t)
@@ -118,12 +91,8 @@ FMSTR_TSA_TABLE_BEGIN(first_table)
         FMSTR_TSA_MEMBER(v2_encoder_diag_t, phase_a2_deg, FMSTR_TSA_FLOAT)
     FMSTR_TSA_RO_VAR(v2_diag, FMSTR_TSA_USERTYPE(v2_encoder_diag_t))
 
-    FMSTR_TSA_STRUCT(perf_metrics_t)
-        FMSTR_TSA_MEMBER(perf_metrics_t, adc_us, FMSTR_TSA_UINT32)
-        FMSTR_TSA_MEMBER(perf_metrics_t, atan2_us, FMSTR_TSA_UINT32)
-        FMSTR_TSA_MEMBER(perf_metrics_t, algo_us, FMSTR_TSA_UINT32)
-        FMSTR_TSA_MEMBER(perf_metrics_t, isr_us, FMSTR_TSA_UINT32)
-    FMSTR_TSA_RO_VAR(g_perf, FMSTR_TSA_USERTYPE(perf_metrics_t))
+    // ========== V2 Calibration Flat View ==========
+    FMSTR_TSA_RO_VAR(s_v2_cal_flat, FMSTR_TSA_FLOAT)
 
 FMSTR_TSA_TABLE_END()
 
@@ -151,7 +120,6 @@ void FMSTR_Example_Init(void)
     fm_cal_status = 0;
     fm_reset_ctrl = 0;
     fm_zero_ctrl = 0;
-    fm_direction = 0;
     fm_encoder_valid = 0;
     fm_encoder_status = 0;
 }

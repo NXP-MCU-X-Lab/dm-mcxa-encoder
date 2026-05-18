@@ -145,20 +145,4 @@ void v2_encoder_process_with_diag(v2_encoder_state_t *state,
                                   v2_encoder_result_t *result,
                                   v2_encoder_diag_t *diag);
 
-/* Legacy result layout retained for FreeMASTER pmpx compatibility.
- * Populated from v2_encoder_result_t via copy_v2_to_legacy_result() in main.c. */
-typedef struct {
-    uint16_t sin_raw;
-    uint16_t cos_raw;
-    float sin_norm;
-    float cos_norm;
-    float magnitude;
-    float elec_angle_deg;
-    float angle_deg;
-    int32_t turns;
-    uint16_t angle_counts;
-    float speed_dps;
-    float speed_rpm;
-} encoder_result_t;
-
 #endif /* APP_ENCODER_V2_H_ */

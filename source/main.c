@@ -18,8 +18,8 @@
 #include "freemaster_serial_lpuart.h"
 #include "hardware_init.h"
 
-#define FMSTR_LOOP_DELAY_US     1000U
-#define CAL_SAMPLE_DELAY_US     1000U
+#define FMSTR_LOOP_DELAY_MS     1U
+#define CAL_SAMPLE_DELAY_MS     1U
 #define ZERO_AVERAGE_SAMPLES    64U
 
 #define FM_CAL_STATE_IDLE       0U
@@ -28,12 +28,31 @@
 #define FM_CAL_STATE_FAILED     3U
 
 adc_sample_result_t adc_result;
-encoder_result_t encoder_result;
 v2_encoder_result_t v2_result;
 v2_encoder_diag_t v2_diag;
+v2_encoder_calibration_t s_v2_calibration;
+/* FreeMASTER JSON-RPC reads this flat view instead of nested struct members. */
+float s_v2_cal_flat[14];
 
-static v2_encoder_calibration_t s_v2_calibration;
 static v2_encoder_state_t s_v2_state;
+
+static void refresh_v2_cal_flat(void)
+{
+    s_v2_cal_flat[0] = s_v2_calibration.a1.center_sin;
+    s_v2_cal_flat[1] = s_v2_calibration.a1.center_cos;
+    s_v2_cal_flat[2] = s_v2_calibration.a1.transform[0][0];
+    s_v2_cal_flat[3] = s_v2_calibration.a1.transform[0][1];
+    s_v2_cal_flat[4] = s_v2_calibration.a1.transform[1][0];
+    s_v2_cal_flat[5] = s_v2_calibration.a1.transform[1][1];
+    s_v2_cal_flat[6] = s_v2_calibration.a2.center_sin;
+    s_v2_cal_flat[7] = s_v2_calibration.a2.center_cos;
+    s_v2_cal_flat[8] = s_v2_calibration.a2.transform[0][0];
+    s_v2_cal_flat[9] = s_v2_calibration.a2.transform[0][1];
+    s_v2_cal_flat[10] = s_v2_calibration.a2.transform[1][0];
+    s_v2_cal_flat[11] = s_v2_calibration.a2.transform[1][1];
+    s_v2_cal_flat[12] = s_v2_calibration.phase_a1_zero_deg;
+    s_v2_cal_flat[13] = s_v2_calibration.phase_a2_zero_deg;
+}
 
 static v2_encoder_raw_sample_t adc_to_encoder_sample(const adc_sample_result_t *sample)
 {
@@ -47,24 +66,7 @@ static v2_encoder_raw_sample_t adc_to_encoder_sample(const adc_sample_result_t *
     return encoder_sample;
 }
 
-static void copy_v2_to_legacy_result(const adc_sample_result_t *adc_sample,
-                                     const v2_encoder_result_t *v2_result,
-                                     encoder_result_t *legacy_result)
-{
-    legacy_result->sin_raw = adc_sample->a1_sin_raw;
-    legacy_result->cos_raw = adc_sample->a1_cos_raw;
-    legacy_result->sin_norm = 0.0f;
-    legacy_result->cos_norm = 0.0f;
-    legacy_result->magnitude = v2_result->mag16;
-    legacy_result->elec_angle_deg = v2_result->phase16_deg;
-    legacy_result->angle_deg = v2_result->angle_deg;
-    legacy_result->turns = 0;
-    legacy_result->angle_counts = (uint16_t)v2_result->angle_counts;
-    legacy_result->speed_dps = 0.0f;
-    legacy_result->speed_rpm = 0.0f;
-}
-
-static v2_encoder_raw_sample_t average_encoder_sample(uint32_t sample_count, uint32_t delay_us)
+static v2_encoder_raw_sample_t average_encoder_sample(uint32_t sample_count, uint32_t per_sample_ms)
 {
     uint32_t a1_sin_sum = 0U;
     uint32_t a1_cos_sum = 0U;
@@ -81,7 +83,7 @@ static v2_encoder_raw_sample_t average_encoder_sample(uint32_t sample_count, uin
         a1_cos_sum += adc_result.a1_cos_raw;
         a2_sin_sum += adc_result.a2_sin_raw;
         a2_cos_sum += adc_result.a2_cos_raw;
-        SDK_DelayAtLeastUs(delay_us, CLOCK_GetFreq(kCLOCK_CoreSysClk));
+        delay_ms(per_sample_ms);
     }
 
     sample.a1_sin_raw = (uint16_t)((a1_sin_sum + (sample_count / 2U)) / sample_count);
@@ -120,12 +122,12 @@ static void perform_v2_calibration_fm(void)
         {
             fm_cal_progress = 1U;
         }
-        SDK_DelayAtLeastUs(CAL_SAMPLE_DELAY_US, CLOCK_GetFreq(kCLOCK_CoreSysClk));
+        delay_ms(CAL_SAMPLE_DELAY_MS);
     }
 
     if (v2_encoder_cal_stats_build(&stats, &s_v2_calibration, &status))
     {
-        encoder_sample = average_encoder_sample(ZERO_AVERAGE_SAMPLES, CAL_SAMPLE_DELAY_US);
+        encoder_sample = average_encoder_sample(ZERO_AVERAGE_SAMPLES, CAL_SAMPLE_DELAY_MS);
         if (v2_encoder_capture_zero(&s_v2_calibration, &encoder_sample, &status))
         {
             v2_encoder_state_init(&s_v2_state);
@@ -155,6 +157,8 @@ static void perform_v2_calibration_fm(void)
         fm_encoder_valid = 0U;
         fm_encoder_status = status;
     }
+
+    refresh_v2_cal_flat();
 }
 
 static void capture_current_zero_fm(void)
@@ -167,10 +171,11 @@ static void capture_current_zero_fm(void)
         return;
     }
 
-    zero_sample = average_encoder_sample(ZERO_AVERAGE_SAMPLES, CAL_SAMPLE_DELAY_US);
+    zero_sample = average_encoder_sample(ZERO_AVERAGE_SAMPLES, CAL_SAMPLE_DELAY_MS);
     if (v2_encoder_capture_zero(&s_v2_calibration, &zero_sample, &status))
     {
         v2_encoder_state_init(&s_v2_state);
+        refresh_v2_cal_flat();
         fm_encoder_valid = 1U;
         fm_encoder_status = V2_ENCODER_STATUS_OK;
     }
@@ -189,7 +194,7 @@ static void update_encoder_result(void)
     v2_encoder_process_with_diag(&s_v2_state, &s_v2_calibration, &encoder_sample, &v2_result, &v2_diag);
     fm_encoder_valid = s_v2_calibration.valid ? 1U : 0U;
     fm_encoder_status = v2_result.status;
-    copy_v2_to_legacy_result(&adc_result, &v2_result, &encoder_result);
+    refresh_v2_cal_flat();
 }
 
 static void init_freemaster(void)
@@ -237,7 +242,7 @@ static void run_freemaster_loop(void)
         }
 
         update_encoder_result();
-        SDK_DelayAtLeastUs(FMSTR_LOOP_DELAY_US, CLOCK_GetFreq(kCLOCK_CoreSysClk));
+        delay_ms(FMSTR_LOOP_DELAY_MS);
     }
 }
 
@@ -248,6 +253,7 @@ int main(void)
 
     v2_encoder_calibration_set_defaults(&s_v2_calibration);
     v2_encoder_state_init(&s_v2_state);
+    refresh_v2_cal_flat();
 
     init_freemaster();
     run_freemaster_loop();

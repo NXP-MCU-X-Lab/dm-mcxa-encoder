@@ -791,19 +791,9 @@
               <FilePath>.\source\pin_mux.c</FilePath>
             </File>
             <File>
-              <FileName>app_sampler.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>.\source\app_sampler.c</FilePath>
-            </File>
-            <File>
               <FileName>app_adc.c</FileName>
               <FileType>1</FileType>
               <FilePath>.\source\app_adc.c</FilePath>
-            </File>
-            <File>
-              <FileName>mau_atan2.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>.\source\mau_atan2.c</FilePath>
             </File>
             <File>
               <FileName>freemaster_example.c</FileName>
@@ -814,11 +804,6 @@
               <FileName>freemaster_cfg.h</FileName>
               <FileType>5</FileType>
               <FilePath>.\source\freemaster_cfg.h</FilePath>
-            </File>
-            <File>
-              <FileName>app_perf.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>.\source\app_perf.c</FilePath>
             </File>
           </Files>
         </Group>

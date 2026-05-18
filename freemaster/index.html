@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>MCXA3XX Digital Encoder Demo</title>
+    <title>MCXA344 Dual-Track Inductive Encoder Demo</title>
     <style>
         * {
             margin: 0;
@@ -20,6 +20,7 @@
             --accent-2: #00ccff;
             --accent-3: #87CEEB;
             --danger: #ff6b6b;
+            --warn: #ffcc66;
             --text-primary: #ffffff;
             --text-secondary: rgba(255, 255, 255, 0.8);
         }
@@ -46,11 +47,11 @@
             box-shadow: 0 10px 30px rgba(0,0,0,0.25);
         }
 
-		.nxp-logo {
-			width: 320px;
-			height: auto;
-			margin-bottom: 15px;
-		}
+        .nxp-logo {
+            width: 320px;
+            height: auto;
+            margin-bottom: 15px;
+        }
 
         .header h1 {
             font-size: 1.6em;
@@ -124,6 +125,16 @@
             font-size: 0.92em;
             color: var(--text-secondary);
         }
+
+        .kv-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 4px 0;
+            font-size: 0.95em;
+        }
+        .kv-row .kv-label { color: var(--text-secondary); }
+        .kv-row .kv-value { font-family: 'Consolas', monospace; }
 
         .progress-container {
             margin-top: 14px;
@@ -219,9 +230,9 @@
 
         .error-message {
             color: var(--danger);
-            font-size: 0.9em;
+            font-size: 0.85em;
             margin-top: 10px;
-            }
+        }
 
         .action-btn {
             display: inline-flex;
@@ -249,37 +260,22 @@
             margin-left: 12px;
             border: 1px solid var(--card-border);
         }
-        .status-idle { background: rgba(255,255,255,0.06); color: var(--text-secondary); }
+        .status-idle    { background: rgba(255,255,255,0.06); color: var(--text-secondary); }
         .status-running { background: rgba(0, 204, 255, 0.18); color: var(--text-primary); }
-        .status-done { background: rgba(0, 255, 136, 0.18); color: var(--text-primary); }
-        .toggle {
-            display: inline-flex;
-            align-items: center;
-            gap: 8px;
-            margin-top: 10px;
-        }
-        .toggle input {
-            width: 40px;
-            height: 20px;
-        }
+        .status-done    { background: rgba(0, 255, 136, 0.18); color: var(--text-primary); }
+        .status-warn    { background: rgba(255, 204, 102, 0.20); color: var(--text-primary); }
+        .status-fail    { background: rgba(255, 107, 107, 0.22); color: var(--text-primary); }
     </style>
 </head>
 <body>
-	<div class="header">
-		<img class="nxp-logo" src="nxp-logo.png" alt="NXP Logo">
-		<h1><span class="status-indicator" id="status-led"></span>NXP MCXA344 Inductive Encoder Demo</h1>
-	</div>
+    <div class="header">
+        <img class="nxp-logo" src="nxp-logo.png" alt="NXP Logo">
+        <h1><span class="status-indicator" id="status-led"></span>NXP MCXA344 Dual-Track Inductive Encoder</h1>
+    </div>
 
     <div class="data-grid">
-        <!-- Multi-turn Counter -->
-        <div class="data-card">
-            <div class="card-title">Multi-turn Counter</div>
-            <div class="data-value" id="multiturn-value">--</div>
-            <div class="data-unit">Turns</div>
-            <div class="error-message" id="multiturn-error"></div>
-        </div>
 
-        <!-- Angle Display -->
+        <!-- Current Angle -->
         <div class="data-card">
             <div class="card-title">Current Angle</div>
             <div class="angle-visual">
@@ -313,29 +309,24 @@
                 <div class="angle-center"></div>
             </div>
             <div class="data-value" id="degrees-value">--°</div>
-            <div class="data-unit">Degrees (0-360)</div>
-            <div class="error-message" id="degrees-error"></div>
-            <div class="data-value" id="counts-value">--</div>
-            <div class="data-unit">Counts (0-65535)</div>
-            <div class="error-message" id="counts-error"></div>
+            <div class="data-unit">Degrees (0 - 360)</div>
+            <div class="data-value" style="font-size:1.4em" id="counts-value">--</div>
+            <div class="data-unit">Counts (0 - 65535)</div>
+            <div class="error-message" id="angle-error"></div>
         </div>
 
-        <!-- Motor Speed -->
+        <!-- Track Status -->
         <div class="data-card">
-            <div class="card-title">Motor Speed</div>
-            <div class="data-value" id="speed-rpm-value">--</div>
-            <div class="data-unit">RPM</div>
-            <div class="data-value" style="font-size:1.4em" id="speed-dps-value">--</div>
-            <div class="data-unit">deg/s</div>
-            <div class="error-message" id="speed-error"></div>
-        </div>
-
-        <!-- Temperature Data -->
-        <div class="data-card">
-            <div class="card-title">Temperature</div>
-            <div class="data-value" id="extra-value">--</div>
-            <div class="data-unit">Celsius (°C)</div>
-            <div class="error-message" id="extra-error"></div>
+            <div class="card-title">Track Status</div>
+            <div class="kv-row"><span class="kv-label">Encoder valid</span><span id="enc-valid-badge" class="status-badge status-idle">Unknown</span></div>
+            <div class="kv-row"><span class="kv-label">Coarse angle</span><span class="kv-value" id="coarse-value">--°</span></div>
+            <div class="kv-row"><span class="kv-label">phase16</span><span class="kv-value" id="phase16-value">--°</span></div>
+            <div class="kv-row"><span class="kv-label">phase15</span><span class="kv-value" id="phase15-value">--°</span></div>
+            <div class="kv-row"><span class="kv-label">mag16</span><span class="kv-value" id="mag16-value">--</span></div>
+            <div class="kv-row"><span class="kv-label">mag15</span><span class="kv-value" id="mag15-value">--</span></div>
+            <div class="kv-row"><span class="kv-label">status</span><span class="kv-value" id="enc-status-value">--</span></div>
+            <div id="enc-status-flags" style="margin-top:8px; font-size:0.85em; color:var(--warn); min-height:1em"></div>
+            <div class="error-message" id="track-error"></div>
         </div>
 
         <!-- Online Calibration -->
@@ -349,123 +340,113 @@
                 <div class="progress-bar"><div id="calib-progress-fill" class="progress-fill"></div></div>
                 <div id="calib-progress-text" class="progress-text">0%</div>
             </div>
+            <div style="margin-top:10px; font-size:0.85em; color:var(--accent-3)">
+                Rotate the rotor through at least one full revolution during the ~8 s calibration window.
+            </div>
             <div class="error-message" id="calib-error"></div>
         </div>
-        <!-- Ellipse Calibration -->
-        <div class="data-card">
-            <div class="card-title">Ellipse Calibration</div>
-            <div class="data-value" style="font-size:1.2em" id="cal-sin-center">sin_center: --</div>
-            <div class="data-value" style="font-size:1.2em" id="cal-cos-center">cos_center: --</div>
-            <div class="data-unit">Transform Matrix</div>
-            <div class="data-value" style="font-size:1.1em" id="cal-t00">[0,0]: --</div>
-            <div class="data-value" style="font-size:1.1em" id="cal-t01">[0,1]: --</div>
-            <div class="data-value" style="font-size:1.1em" id="cal-t10">[1,0]: --</div>
-            <div class="data-value" style="font-size:1.1em" id="cal-t11">[1,1]: --</div>
-            <div class="error-message" id="cal-view-error"></div>
-        </div>
+
         <!-- Encoder Control -->
         <div class="data-card">
             <div class="card-title">Encoder Control</div>
             <div>
                 <button id="zero-here-button" class="action-btn">Zero Here</button>
-                <button id="zero-clear-button" class="action-btn" style="margin-left:8px">Clear Zero</button>
                 <span id="zero-status" class="status-badge status-idle">Idle</span>
             </div>
-            <div class="toggle">
-                <label for="dir-toggle">Direction</label>
-                <input type="checkbox" id="dir-toggle" />
-                <span id="dir-status" class="status-badge status-idle">Normal</span>
+            <div style="margin-top:14px">
+                <button id="reset-button" class="action-btn">MCU Reset</button>
             </div>
             <div class="error-message" id="zero-error"></div>
-            <div class="error-message" id="dir-error"></div>
         </div>
-        <!-- Performance Metrics -->
+
+        <!-- A1 Track Calibration (16 cycles) -->
         <div class="data-card">
-            <div class="card-title">Performance (us)</div>
-            <div style="display:flex;align-items:center;justify-content:space-between;gap:12px">
-                <div style="min-width:80px">ADC sampling</div>
-                <div class="progress-bar" style="flex:1"><div id="perf-adc-fill" class="progress-fill"></div></div>
-                <div id="perf-adc-val" style="min-width:80px;text-align:right">-- µs</div>
-            </div>
-            <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:10px">
-                <div style="min-width:80px">atan2(MAU)</div>
-                <div class="progress-bar" style="flex:1"><div id="perf-atan2-fill" class="progress-fill"></div></div>
-                <div id="perf-atan2-val" style="min-width:80px;text-align:right">-- µs</div>
-            </div>
-            <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:10px">
-                <div style="min-width:80px">encoder algo</div>
-                <div class="progress-bar" style="flex:1"><div id="perf-algo-fill" class="progress-fill"></div></div>
-                <div id="perf-algo-val" style="min-width:80px;text-align:right">-- µs</div>
-            </div>
-            <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:10px">
-                <div style="min-width:80px">total(ISR consume)</div>
-                <div class="progress-bar" style="flex:1"><div id="perf-isr-fill" class="progress-fill"></div></div>
-                <div id="perf-isr-val" style="min-width:80px;text-align:right">-- µs</div>
-            </div>
-            <div class="progress-text">Bars scaled to 100 µs period</div>
-            <div class="error-message" id="perf-error"></div>
+            <div class="card-title">A1 Track (16 cycles)</div>
+            <div class="kv-row"><span class="kv-label">center_sin</span><span class="kv-value" id="a1-cs">--</span></div>
+            <div class="kv-row"><span class="kv-label">center_cos</span><span class="kv-value" id="a1-cc">--</span></div>
+            <div class="kv-row"><span class="kv-label">T[0,0]</span><span class="kv-value" id="a1-t00">--</span></div>
+            <div class="kv-row"><span class="kv-label">T[0,1]</span><span class="kv-value" id="a1-t01">--</span></div>
+            <div class="kv-row"><span class="kv-label">T[1,0]</span><span class="kv-value" id="a1-t10">--</span></div>
+            <div class="kv-row"><span class="kv-label">T[1,1]</span><span class="kv-value" id="a1-t11">--</span></div>
+            <div class="kv-row"><span class="kv-label">zero phase</span><span class="kv-value" id="a1-zero">--°</span></div>
+            <div class="error-message" id="a1-error"></div>
         </div>
+
+        <!-- A2 Track Calibration (15 cycles) -->
+        <div class="data-card">
+            <div class="card-title">A2 Track (15 cycles)</div>
+            <div class="kv-row"><span class="kv-label">center_sin</span><span class="kv-value" id="a2-cs">--</span></div>
+            <div class="kv-row"><span class="kv-label">center_cos</span><span class="kv-value" id="a2-cc">--</span></div>
+            <div class="kv-row"><span class="kv-label">T[0,0]</span><span class="kv-value" id="a2-t00">--</span></div>
+            <div class="kv-row"><span class="kv-label">T[0,1]</span><span class="kv-value" id="a2-t01">--</span></div>
+            <div class="kv-row"><span class="kv-label">T[1,0]</span><span class="kv-value" id="a2-t10">--</span></div>
+            <div class="kv-row"><span class="kv-label">T[1,1]</span><span class="kv-value" id="a2-t11">--</span></div>
+            <div class="kv-row"><span class="kv-label">zero phase</span><span class="kv-value" id="a2-zero">--°</span></div>
+            <div class="error-message" id="a2-error"></div>
+        </div>
+
     </div>
 
     <div class="footer">
-        <div>MCXA3XX Digital Encoder Demo | Last Update: <span id="update-time">--</span></div>
+        <div>MCXA344 Dual-Track Inductive Encoder | Last Update: <span id="update-time">--</span></div>
         <div>Connection Status: <span id="connection-status">Disconnected</span></div>
     </div>
 
-    <!-- Include necessary libraries -->
     <script src="simple-jsonrpc-js.js"></script>
     <script src="freemaster-client.js"></script>
-    
+
     <script>
-        // Global variables
+        /* V2 encoder status bit definitions (matches V2_ENCODER_STATUS_* in app_encoder_v2.h) */
+        const STATUS_BITS = [
+            { bit: 1 << 0, name: 'NOT_CALIBRATED' },
+            { bit: 1 << 1, name: 'TRACK16_WEAK'   },
+            { bit: 1 << 2, name: 'TRACK15_WEAK'   },
+            { bit: 1 << 3, name: 'ADC_RAIL'       },
+            { bit: 1 << 4, name: 'TRACK_MISMATCH' },
+            { bit: 1 << 5, name: 'CAL_FAILED'     },
+            { bit: 1 << 6, name: 'HOLD_LAST'      },
+        ];
+
         let pcm = null;
         let isConnected = false;
         let updateInterval = null;
+        let currentAngle = 0;
 
-        // Initialize PCM connection
+        /* Calibration UI state machine — guards against stale fm_cal_done from a
+         * previous calibration showing "Done" the instant the user clicks again.
+         * Cleared once we observe state == RUNNING or FAILED from firmware. */
+        let calibStartPendingUntil = 0;
+
         function initializePCM() {
             try {
-                // Use default address or get from FreeMASTER
                 let rpcsAddr = "localhost:41000";
                 if (typeof FreeMASTER !== "undefined" && FreeMASTER.rpcs_addr) {
                     rpcsAddr = FreeMASTER.rpcs_addr;
                 }
-
                 pcm = new PCM(rpcsAddr, onSocketConnected, onSocketClose, onSocketError);
                 pcm.OnServerError = onServerError;
-                
                 updateConnectionStatus("Connecting...");
-                
             } catch (error) {
                 console.error("PCM initialization failed:", error);
                 updateConnectionStatus("Initialization Failed");
             }
         }
 
-        // WebSocket connection successful
         function onSocketConnected() {
             isConnected = true;
-            console.log("Connected to FreeMaster");
             updateConnectionStatus("Connected");
             document.getElementById('status-led').classList.remove('disconnected');
-            
-            // Enable events
             pcm.EnableEvents(true);
-            
-            // Start data update
             startDataUpdate();
         }
 
-        // WebSocket connection closed
         function onSocketClose() {
             isConnected = false;
-            console.warn("Connection closed");
             updateConnectionStatus("Connection Closed");
             document.getElementById('status-led').classList.add('disconnected');
             stopDataUpdate();
         }
 
-        // WebSocket error
         function onSocketError(err) {
             isConnected = false;
             console.error("Socket error:", err);
@@ -473,187 +454,195 @@
             document.getElementById('status-led').classList.add('disconnected');
         }
 
-        // Server error
-        function onServerError(err) {
-            console.error("Server error:", err);
-        }
+        function onServerError(err) { console.error("Server error:", err); }
 
-        // Update connection status display
         function updateConnectionStatus(status) {
             document.getElementById('connection-status').textContent = status;
         }
 
-        // Read variable value
         async function readVariable(varName, varType = 'float', size = 4) {
-            if (!pcm || !isConnected) {
-                throw new Error("PCM not connected");
+            if (!pcm || !isConnected) throw new Error("PCM not connected");
+            let response;
+            switch (varType) {
+                case 'int':   response = await pcm.ReadIntVariable(varName, size);   break;
+                case 'uint':  response = await pcm.ReadUIntVariable(varName, size);  break;
+                case 'float':
+                default:      response = await pcm.ReadFloatVariable(varName, size); break;
             }
-
-            try {
-                let response;
-                switch (varType) {
-                    case 'int':
-                        response = await pcm.ReadIntVariable(varName, size);
-                        break;
-                    case 'uint':
-                        response = await pcm.ReadUIntVariable(varName, size);
-                        break;
-                    case 'float':
-                    default:
-                        response = await pcm.ReadFloatVariable(varName, size);
-                        break;
-                }
-                return response.data;
-            } catch (error) {
-                console.error(`Failed to read variable ${varName}:`, error);
-                throw error;
-            }
+            return response.data;
         }
 
-        // Add global variable to track current angle
-        let currentAngle = 0;
-
-        // Calculate shortest rotation path
         function getShortestRotation(from, to) {
             let diff = to - from;
-            
-            // Normalize angle difference to -180 to 180 degree range
-            while (diff > 180) diff -= 360;
+            while (diff > 180)  diff -= 360;
             while (diff < -180) diff += 360;
-            
             return from + diff;
+        }
+
+        function formatHex32(value) {
+            return '0x' + ((Number(value) >>> 0).toString(16).toUpperCase().padStart(8, '0'));
+        }
+
+        function decodeStatusFlags(statusValue) {
+            const v = Number(statusValue) >>> 0;
+            if (v === 0) return '';
+            return STATUS_BITS.filter(b => v & b.bit).map(b => b.name).join(' | ');
         }
 
         async function updateDisplay() {
             if (!isConnected) return;
 
+            /* === Current angle (v2_result.angle_deg + angle_counts) === */
             try {
-                // Calibration status
-                try {
-                    const calDone = await readVariable('fm_cal_done', 'uint', 1);
-                    const calProg = await readVariable('fm_cal_progress', 'uint', 2);
-                    const calState = await readVariable('fm_cal_state', 'uint', 1);
-                    const calStatus = await readVariable('fm_cal_status', 'uint', 4);
-                    updateCalibrationUI(calDone, calProg, calState, calStatus);
-                } catch (error) {
-                    document.getElementById('calib-error').textContent = 'Read failed: ' + error.message;
-                }
+                const degrees = await readVariable('v2_result.angle_deg', 'float', 4);
+                const counts  = await readVariable('v2_result.angle_counts', 'uint', 4);
 
-                try {
-                    const sc = await readVariable('s_calibration.sin_center', 'float', 4);
-                    const cc = await readVariable('s_calibration.cos_center', 'float', 4);
-                    const tf = await pcm.ReadFloatArray('s_calibration.transform', 4);
-                    const arr = tf.data || [];
-                    document.getElementById('cal-sin-center').textContent = 'sin_center: ' + sc.toFixed(3);
-                    document.getElementById('cal-cos-center').textContent = 'cos_center: ' + cc.toFixed(3);
-                    document.getElementById('cal-t00').textContent = '[0,0]: ' + (arr[0] !== undefined ? arr[0].toFixed(6) : '--');
-                    document.getElementById('cal-t01').textContent = '[0,1]: ' + (arr[1] !== undefined ? arr[1].toFixed(6) : '--');
-                    document.getElementById('cal-t10').textContent = '[1,0]: ' + (arr[2] !== undefined ? arr[2].toFixed(6) : '--');
-                    document.getElementById('cal-t11').textContent = '[1,1]: ' + (arr[3] !== undefined ? arr[3].toFixed(6) : '--');
-                    document.getElementById('cal-view-error').textContent = '';
-                } catch (error) {
-                    document.getElementById('cal-view-error').textContent = 'Read failed: ' + error.message;
-                }
+                document.getElementById('degrees-value').textContent = degrees.toFixed(3) + '°';
+                document.getElementById('counts-value').textContent  = counts;
 
-                // Read multi-turn counter (assuming uint type)
-                try {
-                    const multiturn = await readVariable('encoder_result.turns', 'int', 4);
-                    document.getElementById('multiturn-value').textContent = multiturn;
-                    document.getElementById('multiturn-error').textContent = '';
-                } catch (error) {
-                    document.getElementById('multiturn-error').textContent = 'Read failed: ' + error.message;
-                }
+                const targetAngle = getShortestRotation(currentAngle, degrees);
+                currentAngle = targetAngle;
+                document.getElementById('angle-pointer').style.transform =
+                    `translate(-50%, -100%) rotate(${targetAngle}deg)`;
 
-                // Read angle value (float type)
-                try {
-                    const degrees = await readVariable('encoder_result.angle_deg', 'float', 4);
-                    document.getElementById('degrees-value').textContent = degrees.toPrecision(8) + '°';
-                    const targetAngle = getShortestRotation(currentAngle, degrees);
-                    currentAngle = targetAngle;
-                    document.getElementById('angle-pointer').style.transform = 
-                        `translate(-50%, -100%) rotate(${targetAngle}deg)`;
-                    document.getElementById('degrees-error').textContent = '';
-                } catch (error) {
-                    document.getElementById('degrees-error').textContent = 'Read failed: ' + error.message;
-                }
-
-                try {
-                    const counts = await readVariable('encoder_result.angle_counts', 'uint', 2);
-                    document.getElementById('counts-value').textContent = counts;
-                    document.getElementById('counts-error').textContent = '';
-                    
-                } catch (error) {
-                    document.getElementById('counts-error').textContent = 'Read failed: ' + error.message;
-                }
-
-                try {
-                    const temperature = await readVariable('adc_result.temperature', 'float', 4);
-                    document.getElementById('extra-value').textContent = temperature.toFixed(1) + '°C';
-                    document.getElementById('extra-error').textContent = '';
-                } catch (error) {
-                    document.getElementById('extra-error').textContent = 'Read failed: ' + error.message;
-                }
-
-                try {
-                    const rpm = await readVariable('encoder_result.speed_rpm', 'float', 4);
-                    const dps = await readVariable('encoder_result.speed_dps', 'float', 4);
-                    document.getElementById('speed-rpm-value').textContent = rpm.toFixed(1);
-                    document.getElementById('speed-dps-value').textContent = dps.toFixed(1);
-                    document.getElementById('speed-error').textContent = '';
-                } catch (error) {
-                    document.getElementById('speed-error').textContent = 'Read failed: ' + error.message;
-                }
-
-                try {
-                    const dir = await readVariable('fm_direction', 'uint', 1);
-                    const chk = document.getElementById('dir-toggle');
-                    const status = document.getElementById('dir-status');
-                    chk.checked = Number(dir) ? true : false;
-                    status.textContent = Number(dir) ? 'Inverted' : 'Normal';
-                    status.className = 'status-badge status-idle';
-                    document.getElementById('dir-error').textContent = '';
-                } catch (error) {
-                    document.getElementById('dir-error').textContent = 'Read failed: ' + error.message;
-                }
-                try {
-                    const adcUs = await readVariable('g_perf.adc_us', 'uint', 4);
-                    const atan2Us = await readVariable('g_perf.atan2_us', 'uint', 4);
-                    const algoUs = await readVariable('g_perf.algo_us', 'uint', 4);
-                    const isrUs = await readVariable('g_perf.isr_us', 'uint', 4);
-                    const periodUs = 100;
-                    const clamp = (v) => Math.max(0, Math.min(100, Math.round((v / periodUs) * 100)));
-                    document.getElementById('perf-adc-val').textContent = adcUs + ' µs';
-                    document.getElementById('perf-atan2-val').textContent = atan2Us + ' µs';
-                    document.getElementById('perf-algo-val').textContent = algoUs + ' µs';
-                    document.getElementById('perf-isr-val').textContent = isrUs + ' µs';
-                    document.getElementById('perf-adc-fill').style.width = clamp(adcUs) + '%';
-                    document.getElementById('perf-atan2-fill').style.width = clamp(atan2Us) + '%';
-                    document.getElementById('perf-algo-fill').style.width = clamp(algoUs) + '%';
-                    document.getElementById('perf-isr-fill').style.width = clamp(isrUs) + '%';
-                    document.getElementById('perf-error').textContent = '';
-                } catch (error) {
-                    document.getElementById('perf-error').textContent = 'Read failed: ' + error.message;
-                }
-        
-                // Update timestamp
-                document.getElementById('update-time').textContent = 
-                    new Date().toLocaleTimeString();
-                    
+                document.getElementById('angle-error').textContent = '';
             } catch (error) {
-                console.error('Data update error:', error);
+                document.getElementById('angle-error').textContent = 'Read failed: ' + error.message;
+            }
+
+            /* === Track status (v2_result + fm_encoder_valid + fm_encoder_status) === */
+            try {
+                const coarse   = await readVariable('v2_result.coarse_deg',   'float', 4);
+                const phase16  = await readVariable('v2_result.phase16_deg',  'float', 4);
+                const phase15  = await readVariable('v2_result.phase15_deg',  'float', 4);
+                const mag16    = await readVariable('v2_result.mag16',        'float', 4);
+                const mag15    = await readVariable('v2_result.mag15',        'float', 4);
+                const status   = await readVariable('v2_result.status',       'uint',  4);
+                const valid    = await readVariable('fm_encoder_valid',       'uint',  1);
+
+                document.getElementById('coarse-value').textContent   = coarse.toFixed(3) + '°';
+                document.getElementById('phase16-value').textContent  = phase16.toFixed(3) + '°';
+                document.getElementById('phase15-value').textContent  = phase15.toFixed(3) + '°';
+                document.getElementById('mag16-value').textContent    = mag16.toFixed(3);
+                document.getElementById('mag15-value').textContent    = mag15.toFixed(3);
+                document.getElementById('enc-status-value').textContent = formatHex32(status);
+
+                const flagsText = decodeStatusFlags(status);
+                document.getElementById('enc-status-flags').textContent = flagsText;
+
+                const validBadge = document.getElementById('enc-valid-badge');
+                if (Number(valid) === 1 && Number(status) === 0) {
+                    validBadge.textContent = 'OK';
+                    validBadge.className = 'status-badge status-done';
+                } else if (Number(valid) === 1) {
+                    validBadge.textContent = 'Warn';
+                    validBadge.className = 'status-badge status-warn';
+                } else {
+                    validBadge.textContent = 'Invalid';
+                    validBadge.className = 'status-badge status-fail';
+                }
+
+                document.getElementById('track-error').textContent = '';
+            } catch (error) {
+                document.getElementById('track-error').textContent = 'Read failed: ' + error.message;
+            }
+
+            /* === Calibration status === */
+            try {
+                const calDone   = await readVariable('fm_cal_done',     'uint', 1);
+                const calProg   = await readVariable('fm_cal_progress', 'uint', 2);
+                const calState  = await readVariable('fm_cal_state',    'uint', 1);
+                const calStatus = await readVariable('fm_cal_status',   'uint', 4);
+                updateCalibrationUI(calDone, calProg, calState, calStatus);
+            } catch (error) {
+                document.getElementById('calib-error').textContent = 'Read failed: ' + error.message;
+            }
+
+            /* === Per-track calibration === */
+            try {
+                const blob = await pcm.ReadFloatArray('s_v2_cal_flat', 14);
+                const a = blob.data || [];
+                if (a.length < 14) throw new Error('short read (' + a.length + '/14)');
+                fillTrackCal('a1', a, 0);
+                fillTrackCal('a2', a, 6);
+                document.getElementById('a1-zero').textContent = a[12].toFixed(3) + '°';
+                document.getElementById('a2-zero').textContent = a[13].toFixed(3) + '°';
+                document.getElementById('a1-error').textContent = '';
+                document.getElementById('a2-error').textContent = '';
+            } catch (error) {
+                const msg = 'Read failed: ' + (error && error.message ? error.message : 'undefined');
+                document.getElementById('a1-error').textContent = msg;
+                document.getElementById('a2-error').textContent = msg;
+            }
+
+            document.getElementById('update-time').textContent = new Date().toLocaleTimeString();
+        }
+
+        function fillTrackCal(idPrefix, arr, base) {
+            document.getElementById(idPrefix + '-cs').textContent = arr[base + 0].toFixed(3);
+            document.getElementById(idPrefix + '-cc').textContent = arr[base + 1].toFixed(3);
+            document.getElementById(idPrefix + '-t00').textContent = arr[base + 2].toFixed(6);
+            document.getElementById(idPrefix + '-t01').textContent = arr[base + 3].toFixed(6);
+            document.getElementById(idPrefix + '-t10').textContent = arr[base + 4].toFixed(6);
+            document.getElementById(idPrefix + '-t11').textContent = arr[base + 5].toFixed(6);
+        }
+
+        function updateCalibrationUI(done, progress, state, calStatus) {
+            const btn  = document.getElementById('calib-button');
+            const tag  = document.getElementById('calib-status');
+            const fill = document.getElementById('calib-progress-fill');
+            const text = document.getElementById('calib-progress-text');
+            const err  = document.getElementById('calib-error');
+
+            const p = Math.max(0, Math.min(100, Number(progress) || 0));
+            const s = Number(state) || 0;
+            fill.style.width = p + '%';
+            text.textContent = p + '%';
+
+            /* Clear the pending guard once firmware visibly transitions to RUNNING/FAILED. */
+            if (s === 1 || s === 3) calibStartPendingUntil = 0;
+
+            /* During the start grace window, force "Starting" — protects against the
+             * race where firmware hasn't cleared the previous fm_cal_done yet. */
+            if (Date.now() < calibStartPendingUntil && s !== 1 && s !== 3) {
+                tag.textContent = 'Starting';
+                tag.className = 'status-badge status-running';
+                btn.disabled = true;
+                err.textContent = '';
+                return;
+            }
+
+            if (s === 1) {
+                tag.textContent = 'Calibrating';
+                tag.className = 'status-badge status-running';
+                btn.disabled = true;
+                err.textContent = '';
+            } else if (s === 2) {
+                tag.textContent = 'Done';
+                tag.className = 'status-badge status-done';
+                btn.disabled = false;
+                err.textContent = '';
+            } else if (s === 3) {
+                tag.textContent = 'Failed';
+                tag.className = 'status-badge status-fail';
+                btn.disabled = false;
+                const flags = decodeStatusFlags(calStatus);
+                err.textContent = 'Status: ' + formatHex32(calStatus)
+                    + (flags ? '  (' + flags + ')' : '');
+            } else {
+                tag.textContent = 'Idle';
+                tag.className = 'status-badge status-idle';
+                btn.disabled = false;
+                err.textContent = '';
             }
         }
 
-        // Start data update
         function startDataUpdate() {
-            if (updateInterval) {
-                clearInterval(updateInterval);
-            }
-            updateInterval = setInterval(updateDisplay, 50); // Update every 200ms
-            updateDisplay(); // Update immediately once
+            if (updateInterval) clearInterval(updateInterval);
+            updateInterval = setInterval(updateDisplay, 100);
+            updateDisplay();
         }
 
-        // Stop data update
         function stopDataUpdate() {
             if (updateInterval) {
                 clearInterval(updateInterval);
@@ -661,134 +650,74 @@
             }
         }
 
-        // Initialize after page load
-        document.addEventListener('DOMContentLoaded', function() {
-            console.log("Page loaded, initializing PCM...");
-            initializePCM();
-            document.getElementById('calib-button').addEventListener('click', startCalibration);
-            document.getElementById('zero-here-button').addEventListener('click', zeroHere);
-            document.getElementById('zero-clear-button').addEventListener('click', clearZero);
-            document.getElementById('dir-toggle').addEventListener('change', setDirectionFromToggle);
-        });
-
-        // Cleanup on page unload
-        window.addEventListener('beforeunload', function() {
-            if (pcm) {
-                pcm.Shutdown();
-            }
-        });
-
         async function startCalibration() {
-            const btn = document.getElementById('calib-button');
-            const status = document.getElementById('calib-status');
+            const btn  = document.getElementById('calib-button');
+            const tag  = document.getElementById('calib-status');
             const fill = document.getElementById('calib-progress-fill');
             const text = document.getElementById('calib-progress-text');
             try {
                 if (!pcm || !isConnected) throw new Error('Not connected');
+                /* Hold the UI in "Starting" for up to 1.5 s so a stale fm_cal_done=1
+                 * from a prior run can't flash "Done" before firmware reacts. */
+                calibStartPendingUntil = Date.now() + 1500;
                 btn.disabled = true;
-                status.textContent = 'Starting';
-                status.className = 'status-badge status-running';
+                tag.textContent = 'Starting';
+                tag.className = 'status-badge status-running';
                 fill.style.width = '0%';
                 text.textContent = '0%';
                 await pcm.WriteUIntVariable('fm_cal_enable', 1, 1);
             } catch (err) {
+                calibStartPendingUntil = 0;
                 document.getElementById('calib-error').textContent = 'Start failed: ' + err.message;
                 btn.disabled = false;
-                status.textContent = 'Idle';
-                status.className = 'status-badge status-idle';
-            }
-        }
-
-        function formatHex32(value) {
-            return '0x' + ((Number(value) >>> 0).toString(16).toUpperCase().padStart(8, '0'));
-        }
-
-        function updateCalibrationUI(done, progress, state, calStatus) {
-            const btn = document.getElementById('calib-button');
-            const status = document.getElementById('calib-status');
-            const fill = document.getElementById('calib-progress-fill');
-            const text = document.getElementById('calib-progress-text');
-            const error = document.getElementById('calib-error');
-            const p = Math.max(0, Math.min(100, Number(progress) || 0));
-            const s = Number(state) || 0;
-            fill.style.width = p + '%';
-            text.textContent = p + '%';
-            if (s === 1) {
-                status.textContent = 'Calibrating';
-                status.className = 'status-badge status-running';
-                btn.disabled = true;
-                error.textContent = '';
-            } else if ((s === 2) || (Number(done) === 1)) {
-                status.textContent = 'Done';
-                status.className = 'status-badge status-done';
-                btn.disabled = false;
-                error.textContent = '';
-            } else if (s === 3) {
-                status.textContent = 'Failed';
-                status.className = 'status-badge status-idle';
-                btn.disabled = false;
-                error.textContent = 'Status: ' + formatHex32(calStatus);
-            } else {
-                status.textContent = 'Idle';
-                status.className = 'status-badge status-idle';
-                btn.disabled = false;
-                error.textContent = '';
+                tag.textContent = 'Idle';
+                tag.className = 'status-badge status-idle';
             }
         }
 
         async function zeroHere() {
-            const btnH = document.getElementById('zero-here-button');
-            const status = document.getElementById('zero-status');
+            const btn = document.getElementById('zero-here-button');
+            const tag = document.getElementById('zero-status');
             try {
                 if (!pcm || !isConnected) throw new Error('Not connected');
-                btnH.disabled = true;
-                status.textContent = 'Zeroing';
-                status.className = 'status-badge status-running';
+                btn.disabled = true;
+                tag.textContent = 'Zeroing';
+                tag.className = 'status-badge status-running';
                 await pcm.WriteUIntVariable('fm_zero_ctrl', 1, 1);
-                status.textContent = 'Done';
-                status.className = 'status-badge status-done';
+                tag.textContent = 'Done';
+                tag.className = 'status-badge status-done';
             } catch (err) {
                 document.getElementById('zero-error').textContent = 'Zero failed: ' + err.message;
-                status.textContent = 'Idle';
-                status.className = 'status-badge status-idle';
+                tag.textContent = 'Idle';
+                tag.className = 'status-badge status-idle';
             } finally {
-                btnH.disabled = false;
+                btn.disabled = false;
             }
         }
 
-        async function clearZero() {
-            const btnC = document.getElementById('zero-clear-button');
-            const status = document.getElementById('zero-status');
+        async function mcuReset() {
+            const btn = document.getElementById('reset-button');
             try {
                 if (!pcm || !isConnected) throw new Error('Not connected');
-                btnC.disabled = true;
-                status.textContent = 'Clearing';
-                status.className = 'status-badge status-running';
-                await pcm.WriteUIntVariable('fm_zero_ctrl', 1, 2);
-                status.textContent = 'Done';
-                status.className = 'status-badge status-done';
+                btn.disabled = true;
+                await pcm.WriteUIntVariable('fm_reset_ctrl', 1, 1);
             } catch (err) {
-                document.getElementById('zero-error').textContent = 'Clear failed: ' + err.message;
-                status.textContent = 'Idle';
-                status.className = 'status-badge status-idle';
+                document.getElementById('zero-error').textContent = 'Reset failed: ' + err.message;
             } finally {
-                btnC.disabled = false;
+                setTimeout(() => { btn.disabled = false; }, 1500);
             }
         }
 
-        async function setDirectionFromToggle() {
-            const chk = document.getElementById('dir-toggle');
-            const status = document.getElementById('dir-status');
-            try {
-                if (!pcm || !isConnected) throw new Error('Not connected');
-                const val = chk.checked ? 1 : 0;
-                await pcm.WriteUIntVariable('fm_direction', 1, val);
-                status.textContent = val ? 'Inverted' : 'Normal';
-                status.className = 'status-badge status-running';
-            } catch (err) {
-                document.getElementById('dir-error').textContent = 'Direction failed: ' + err.message;
-            }
-        }
+        document.addEventListener('DOMContentLoaded', function() {
+            initializePCM();
+            document.getElementById('calib-button').addEventListener('click', startCalibration);
+            document.getElementById('zero-here-button').addEventListener('click', zeroHere);
+            document.getElementById('reset-button').addEventListener('click', mcuReset);
+        });
+
+        window.addEventListener('beforeunload', function() {
+            if (pcm) pcm.Shutdown();
+        });
     </script>
 </body>
 </html>
