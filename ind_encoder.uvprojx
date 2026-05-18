@@ -766,9 +766,19 @@
           <GroupName>source</GroupName>
           <Files>
             <File>
-              <FileName>app_encoder_v2.c</FileName>
+              <FileName>app_encoder.c</FileName>
               <FileType>1</FileType>
-              <FilePath>.\source\app_encoder_v2.c</FilePath>
+              <FilePath>.\source\app_encoder.c</FilePath>
+            </File>
+            <File>
+              <FileName>app_encoder_defaults.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>.\source\app_encoder_defaults.c</FilePath>
+            </File>
+            <File>
+              <FileName>app_encoder_runtime.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>.\source\app_encoder_runtime.c</FilePath>
             </File>
             <File>
               <FileName>clock_config.c</FileName>
@@ -796,9 +806,9 @@
               <FilePath>.\source\app_adc.c</FilePath>
             </File>
             <File>
-              <FileName>freemaster_example.c</FileName>
+              <FileName>app_freemaster.c</FileName>
               <FileType>1</FileType>
-              <FilePath>.\source\freemaster_example.c</FilePath>
+              <FilePath>.\source\app_freemaster.c</FilePath>
             </File>
             <File>
               <FileName>freemaster_cfg.h</FileName>

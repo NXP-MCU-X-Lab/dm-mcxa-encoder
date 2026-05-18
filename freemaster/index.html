@@ -325,6 +325,9 @@
             <div class="kv-row"><span class="kv-label">mag16</span><span class="kv-value" id="mag16-value">--</span></div>
             <div class="kv-row"><span class="kv-label">mag15</span><span class="kv-value" id="mag15-value">--</span></div>
             <div class="kv-row"><span class="kv-label">status</span><span class="kv-value" id="enc-status-value">--</span></div>
+            <div class="kv-row"><span class="kv-label">sample rate</span><span class="kv-value" id="sample-rate-value">--</span></div>
+            <div class="kv-row"><span class="kv-label">samples</span><span class="kv-value" id="sample-count-value">--</span></div>
+            <div class="kv-row"><span class="kv-label">overruns</span><span class="kv-value" id="overrun-count-value">--</span></div>
             <div id="enc-status-flags" style="margin-top:8px; font-size:0.85em; color:var(--warn); min-height:1em"></div>
             <div class="error-message" id="track-error"></div>
         </div>
@@ -396,7 +399,7 @@
     <script src="freemaster-client.js"></script>
 
     <script>
-        /* V2 encoder status bit definitions (matches V2_ENCODER_STATUS_* in app_encoder_v2.h) */
+        /* encoder status bit definitions (matches ENCODER_STATUS_* in app_encoder.h) */
         const STATUS_BITS = [
             { bit: 1 << 0, name: 'NOT_CALIBRATED' },
             { bit: 1 << 1, name: 'TRACK16_WEAK'   },
@@ -492,10 +495,10 @@
         async function updateDisplay() {
             if (!isConnected) return;
 
-            /* === Current angle (v2_result.angle_deg + angle_counts) === */
+            /* === Current angle (encoder_result.angle_deg + angle_counts) === */
             try {
-                const degrees = await readVariable('v2_result.angle_deg', 'float', 4);
-                const counts  = await readVariable('v2_result.angle_counts', 'uint', 4);
+                const degrees = await readVariable('encoder_result.angle_deg', 'float', 4);
+                const counts  = await readVariable('encoder_result.angle_counts', 'uint', 4);
 
                 document.getElementById('degrees-value').textContent = degrees.toFixed(3) + '°';
                 document.getElementById('counts-value').textContent  = counts;
@@ -510,15 +513,18 @@
                 document.getElementById('angle-error').textContent = 'Read failed: ' + error.message;
             }
 
-            /* === Track status (v2_result + fm_encoder_valid + fm_encoder_status) === */
+            /* === Track status (encoder_result + fm_encoder_valid + fm_encoder_status) === */
             try {
-                const coarse   = await readVariable('v2_result.coarse_deg',   'float', 4);
-                const phase16  = await readVariable('v2_result.phase16_deg',  'float', 4);
-                const phase15  = await readVariable('v2_result.phase15_deg',  'float', 4);
-                const mag16    = await readVariable('v2_result.mag16',        'float', 4);
-                const mag15    = await readVariable('v2_result.mag15',        'float', 4);
-                const status   = await readVariable('v2_result.status',       'uint',  4);
+                const coarse   = await readVariable('encoder_result.coarse_deg',   'float', 4);
+                const phase16  = await readVariable('encoder_result.phase16_deg',  'float', 4);
+                const phase15  = await readVariable('encoder_result.phase15_deg',  'float', 4);
+                const mag16    = await readVariable('encoder_result.mag16',        'float', 4);
+                const mag15    = await readVariable('encoder_result.mag15',        'float', 4);
+                const status   = await readVariable('encoder_result.status',       'uint',  4);
                 const valid    = await readVariable('fm_encoder_valid',       'uint',  1);
+                const rateHz   = await readVariable('encoder_sample_rate_hz', 'uint',  4);
+                const samples  = await readVariable('adc_sample_count',       'uint',  4);
+                const overruns = await readVariable('adc_overrun_count',      'uint',  4);
 
                 document.getElementById('coarse-value').textContent   = coarse.toFixed(3) + '°';
                 document.getElementById('phase16-value').textContent  = phase16.toFixed(3) + '°';
@@ -526,6 +532,9 @@
                 document.getElementById('mag16-value').textContent    = mag16.toFixed(3);
                 document.getElementById('mag15-value').textContent    = mag15.toFixed(3);
                 document.getElementById('enc-status-value').textContent = formatHex32(status);
+                document.getElementById('sample-rate-value').textContent = rateHz + ' Hz';
+                document.getElementById('sample-count-value').textContent = samples;
+                document.getElementById('overrun-count-value').textContent = overruns;
 
                 const flagsText = decodeStatusFlags(status);
                 document.getElementById('enc-status-flags').textContent = flagsText;
@@ -560,7 +569,7 @@
 
             /* === Per-track calibration === */
             try {
-                const blob = await pcm.ReadFloatArray('s_v2_cal_flat', 14);
+                const blob = await pcm.ReadFloatArray('encoder_cal_flat', 14);
                 const a = blob.data || [];
                 if (a.length < 14) throw new Error('short read (' + a.length + '/14)');
                 fillTrackCal('a1', a, 0);

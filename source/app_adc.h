@@ -7,40 +7,21 @@
 #ifndef _APP_ADC_H_
 #define _APP_ADC_H_
 
-/* ADC interface for V2 inductive encoder hardware.
- * Provides channel definitions, sampling modes, result structure, and APIs
- * for reading both encoder lanes as raw ADC values.
+/* ADC interface for dual-track inductive encoder hardware.
+ * Provides the realtime sampling rate, result structure, and APIs for reading
+ * both encoder lanes as raw ADC values.
  */
 
-#include "fsl_lpadc.h"
-#include <stdbool.h>
+#include <stdint.h>
 
-/* V2 Pin Mapping:
+/* Encoder Pin Mapping:
  * A1_SIN: MCU OPAMP0_OUT -> P2_15 (ADC0_A2)
  * A1_COS: MCU OPAMP1_OUT -> P2_19 (ADC1_A2)
  * A2_SIN: TLV9062 A2_OPA0_OUT -> P2_6 (ADC1_A3)
  * A2_COS: TLV9062 A2_OPA1_OUT -> P2_7 (ADC0_A7)
  */
 
-/* ADC Channel Definitions */
-#define ADC_CH_A1_SIN           2U   /* ADC0_A2 */
-#define ADC_CH_A1_COS           2U   /* ADC1_A2 */
-#define ADC_CH_A2_SIN           3U   /* ADC1_A3 */
-#define ADC_CH_A2_COS           7U   /* ADC0_A7 */
-
-/* Command IDs */
-#define ADC_CMD_NORMAL_A        1U
-#define ADC_CMD_NORMAL_B        2U
-
-/* Trigger Configuration */
-#define ADC_TRIGGER_ID          0U
-
-/* Hardware Averaging for Signal Channels */
-#define ADC_HW_AVG_SIGNAL       kLPADC_HardwareAverageCount2
-#define ADC_SAMPLE_TIME_SIGNAL  kLPADC_SampleTimeADCK5
-#define ADC_CLK_DIV             3
-
-
+#define ADC_SAMPLE_RATE_HZ      10000U
 
 /* ADC Sample Result Structure */
 typedef struct {
@@ -50,18 +31,41 @@ typedef struct {
     uint16_t a2_cos_raw;
 } adc_sample_result_t;
 
+typedef void (*adc_sample_callback_t)(const adc_sample_result_t *sample);
+
 /* Function Prototypes */
 
 /**
- * @brief Initialize ADC for V2 raw lane sampling.
+ * @brief Initialize ADC for encoder raw lane sampling.
  */
 void adc_init(void);
 
 /**
- * @brief Read V2 raw ADC samples for both lanes.
- * @return adc_sample_result_t Structure containing the four raw channel values
+ * @brief Set the callback invoked from ADC interrupt context when a full four-channel sample is ready.
+ *
+ * The callback must be short and non-blocking.
  */
-adc_sample_result_t adc_read(void);
+void adc_set_sample_callback(adc_sample_callback_t callback);
+
+/**
+ * @brief Start CTIMER0-triggered realtime ADC sampling.
+ */
+void adc_realtime_start(void);
+
+/**
+ * @brief Stop CTIMER0-triggered realtime ADC sampling.
+ */
+void adc_realtime_stop(void);
+
+/**
+ * @brief Get the number of complete four-channel samples captured by the realtime sampler.
+ */
+uint32_t adc_get_sample_count(void);
+
+/**
+ * @brief Get ADC FIFO overflow or incomplete-pair overrun count.
+ */
+uint32_t adc_get_overrun_count(void);
 
 
 #endif /* _APP_ADC_H_ */

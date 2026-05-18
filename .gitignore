@@ -30,6 +30,8 @@
 *.scvd
 *.uvoptx
 *.txt
+!tests/CMakeLists.txt
+!freemaster/*.pmpx
 *.xcl
 *.pbi.xcl
 *.ini

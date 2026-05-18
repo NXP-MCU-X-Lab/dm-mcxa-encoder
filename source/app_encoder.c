@@ -1,40 +1,24 @@
-#include "app_encoder_v2.h"
+#include "app_encoder.h"
 
 #include <float.h>
 #include <limits.h>
 #include <math.h>
 #include <stddef.h>
 
-#define V2_ENCODER_PI (3.14159265358979323846f)
-#define V2_ENCODER_ADC_RAIL_LOW (64U)
-#define V2_ENCODER_ADC_RAIL_HIGH (65471U)
-#define V2_ENCODER_MIN_RAW_AMPLITUDE (256.0f)
-#define V2_ENCODER_MIN_NORMALIZED_MAG (0.15f)
-#define V2_ENCODER_TRACK_PHASE_TOLERANCE_DEG (45.0f)
-#define V2_ENCODER_DEFAULT_RAW_CENTER (32768.0f)
-#define V2_ENCODER_DEFAULT_RAW_AMPLITUDE (16384.0f)
-#define V2_ENCODER_MIN_ROUGH_AMPLITUDE (64.0f)
-#define V2_ENCODER_FINE_BRANCH_STEP_DEG (360.0f / (float)V2_ENCODER_TRACK16_CYCLES)
-#define V2_ENCODER_BRANCH_SLIP_STEP_DEG (0.5f * V2_ENCODER_FINE_BRANCH_STEP_DEG)
-#define V2_ENCODER_BRANCH_ERROR_MARGIN_DEG (5.0f)
+#define ENCODER_PI (3.14159265358979323846f)
+#define ENCODER_ADC_RAIL_LOW (64U)
+#define ENCODER_ADC_RAIL_HIGH (65471U)
+#define ENCODER_MIN_RAW_AMPLITUDE (256.0f)
+#define ENCODER_MIN_NORMALIZED_MAG (0.15f)
+#define ENCODER_TRACK_PHASE_TOLERANCE_DEG (45.0f)
+#define ENCODER_DEFAULT_RAW_CENTER (32768.0f)
+#define ENCODER_DEFAULT_RAW_AMPLITUDE (16384.0f)
+#define ENCODER_MIN_ROUGH_AMPLITUDE (64.0f)
+#define ENCODER_FINE_BRANCH_STEP_DEG (360.0f / (float)ENCODER_TRACK16_CYCLES)
+#define ENCODER_BRANCH_SLIP_STEP_DEG (0.5f * ENCODER_FINE_BRANCH_STEP_DEG)
+#define ENCODER_BRANCH_ERROR_MARGIN_DEG (5.0f)
 
-#define V2_ENCODER_BOARD_A1_CENTER_SIN (12156.5f)
-#define V2_ENCODER_BOARD_A1_CENTER_COS (22284.5f)
-#define V2_ENCODER_BOARD_A1_T00        (0.000151f)
-#define V2_ENCODER_BOARD_A1_T01        (0.0f)
-#define V2_ENCODER_BOARD_A1_T10        (0.0f)
-#define V2_ENCODER_BOARD_A1_T11        (0.000079f)
-#define V2_ENCODER_BOARD_A1_ZERO_DEG   (205.701f)
-
-#define V2_ENCODER_BOARD_A2_CENTER_SIN (21796.5f)
-#define V2_ENCODER_BOARD_A2_CENTER_COS (21121.5f)
-#define V2_ENCODER_BOARD_A2_T00        (0.000091f)
-#define V2_ENCODER_BOARD_A2_T01        (0.0f)
-#define V2_ENCODER_BOARD_A2_T10        (0.0f)
-#define V2_ENCODER_BOARD_A2_T11        (0.000091f)
-#define V2_ENCODER_BOARD_A2_ZERO_DEG   (118.153f)
-
-typedef struct _v2_encoder_solver_candidate
+typedef struct _encoder_solver_candidate
 {
     uint8_t mapping;
     int8_t dir16;
@@ -46,7 +30,7 @@ typedef struct _v2_encoder_solver_candidate
     float phase16_error;
     float phase15_error;
     float error;
-} v2_encoder_solver_candidate_t;
+} encoder_solver_candidate_t;
 
 static bool is_finite_float(float value)
 {
@@ -87,82 +71,72 @@ static float max_float(float a, float b)
 
 static uint32_t angle_to_counts(float angle_deg)
 {
-    uint32_t counts = (uint32_t)(((wrap_deg(angle_deg) * (float)V2_ENCODER_COUNTS_PER_REV) / 360.0f) + 0.5f);
+    uint32_t counts = (uint32_t)(((wrap_deg(angle_deg) * (float)ENCODER_COUNTS_PER_REV) / 360.0f) + 0.5f);
 
-    if (counts >= V2_ENCODER_COUNTS_PER_REV)
+    if (counts >= ENCODER_COUNTS_PER_REV)
     {
-        counts -= V2_ENCODER_COUNTS_PER_REV;
+        counts -= ENCODER_COUNTS_PER_REV;
     }
 
     return counts;
 }
 
+static float filter_published_angle(encoder_state_t *state, float raw_angle_deg)
+{
+#if ENCODER_FILTER_ENABLE != 0U
+    const float alpha = ENCODER_FILTER_ALPHA;
+    float filtered;
+
+    if ((state == NULL) || (alpha <= 0.0f) || (alpha >= 1.0f))
+    {
+        return wrap_deg(raw_angle_deg);
+    }
+
+    if (!state->filter_initialized)
+    {
+        state->filtered_angle_deg = wrap_deg(raw_angle_deg);
+        state->filter_initialized = true;
+        return state->filtered_angle_deg;
+    }
+
+    filtered = wrap_deg(state->filtered_angle_deg +
+                        (signed_angle_error_deg(raw_angle_deg, state->filtered_angle_deg) * alpha));
+    state->filtered_angle_deg = filtered;
+    return filtered;
+#else
+    (void)state;
+    return wrap_deg(raw_angle_deg);
+#endif
+}
+
 static bool adc_is_rail(uint16_t raw)
 {
-    return ((raw <= V2_ENCODER_ADC_RAIL_LOW) || (raw >= V2_ENCODER_ADC_RAIL_HIGH));
+    return ((raw <= ENCODER_ADC_RAIL_LOW) || (raw >= ENCODER_ADC_RAIL_HIGH));
 }
 
-static void set_identity_track_cal(v2_encoder_track_calibration_t *track)
+static void set_identity_track_cal(encoder_track_calibration_t *track)
 {
     if (track == NULL)
     {
         return;
     }
 
-    track->center_sin = V2_ENCODER_DEFAULT_RAW_CENTER;
-    track->center_cos = V2_ENCODER_DEFAULT_RAW_CENTER;
-    track->transform[0][0] = 1.0f / V2_ENCODER_DEFAULT_RAW_AMPLITUDE;
+    track->center_sin = ENCODER_DEFAULT_RAW_CENTER;
+    track->center_cos = ENCODER_DEFAULT_RAW_CENTER;
+    track->transform[0][0] = 1.0f / ENCODER_DEFAULT_RAW_AMPLITUDE;
     track->transform[0][1] = 0.0f;
     track->transform[1][0] = 0.0f;
-    track->transform[1][1] = 1.0f / V2_ENCODER_DEFAULT_RAW_AMPLITUDE;
+    track->transform[1][1] = 1.0f / ENCODER_DEFAULT_RAW_AMPLITUDE;
 }
 
-static void set_track_cal(v2_encoder_track_calibration_t *track,
-                          float center_sin,
-                          float center_cos,
-                          float t00,
-                          float t01,
-                          float t10,
-                          float t11)
+static void init_track_stats(encoder_track_cal_stats_t *stats)
 {
-    if (track == NULL)
-    {
-        return;
-    }
-
-    track->center_sin = center_sin;
-    track->center_cos = center_cos;
-    track->transform[0][0] = t00;
-    track->transform[0][1] = t01;
-    track->transform[1][0] = t10;
-    track->transform[1][1] = t11;
-}
-
-static void init_track_stats(v2_encoder_track_cal_stats_t *stats)
-{
-    stats->count = 0U;
-    stats->rail_count = 0U;
+    *stats = (encoder_track_cal_stats_t){0};
     stats->min_sin = UINT16_MAX;
-    stats->max_sin = 0U;
     stats->min_cos = UINT16_MAX;
-    stats->max_cos = 0U;
-    stats->sum_sin = 0.0;
-    stats->sum_cos = 0.0;
-    stats->sum_sin2 = 0.0;
-    stats->sum_cos2 = 0.0;
-    stats->sum_sincos = 0.0;
-    stats->sum_sin3 = 0.0;
-    stats->sum_cos3 = 0.0;
-    stats->sum_sin2cos = 0.0;
-    stats->sum_sincos2 = 0.0;
-    stats->sum_sin4 = 0.0;
-    stats->sum_cos4 = 0.0;
-    stats->sum_sin3cos = 0.0;
-    stats->sum_sincos3 = 0.0;
-    stats->sum_sin2cos2 = 0.0;
 }
 
-static void init_rough_track(v2_encoder_rough_track_state_t *track)
+static void init_rough_track(encoder_rough_track_state_t *track)
 {
     if (track == NULL)
     {
@@ -189,7 +163,7 @@ static void update_min_max(uint16_t raw, uint16_t *min_raw, uint16_t *max_raw)
     }
 }
 
-static void update_rough_track(v2_encoder_rough_track_state_t *track, uint16_t sin_raw, uint16_t cos_raw)
+static void update_rough_track(encoder_rough_track_state_t *track, uint16_t sin_raw, uint16_t cos_raw)
 {
     if (track == NULL)
     {
@@ -210,7 +184,7 @@ static void update_rough_track(v2_encoder_rough_track_state_t *track, uint16_t s
     update_min_max(cos_raw, &track->min_cos, &track->max_cos);
 }
 
-static void accumulate_track_stats(v2_encoder_track_cal_stats_t *stats, uint16_t sin_raw, uint16_t cos_raw)
+static void accumulate_track_stats(encoder_track_cal_stats_t *stats, uint16_t sin_raw, uint16_t cos_raw)
 {
     const double sin_value = (double)sin_raw;
     const double cos_value = (double)cos_raw;
@@ -334,16 +308,16 @@ static bool solve_3x3(double matrix[3][3], double vector[3], double result[3])
     return true;
 }
 
-static bool build_track_calibration(const v2_encoder_track_cal_stats_t *stats,
-                                    v2_encoder_track_calibration_t *track,
+static bool build_track_calibration(const encoder_track_cal_stats_t *stats,
+                                    encoder_track_calibration_t *track,
                                     uint32_t weak_status,
                                     uint32_t *status)
 {
     const float range_sin = 0.5f * (float)(stats->max_sin - stats->min_sin);
     const float range_cos = 0.5f * (float)(stats->max_cos - stats->min_cos);
 
-    if ((stats->count < 64U) || (range_sin < V2_ENCODER_MIN_RAW_AMPLITUDE) ||
-        (range_cos < V2_ENCODER_MIN_RAW_AMPLITUDE))
+    if ((stats->count < 64U) || (range_sin < ENCODER_MIN_RAW_AMPLITUDE) ||
+        (range_cos < ENCODER_MIN_RAW_AMPLITUDE))
     {
         if (status != NULL)
         {
@@ -356,7 +330,7 @@ static bool build_track_calibration(const v2_encoder_track_cal_stats_t *stats,
     {
         if (status != NULL)
         {
-            *status |= V2_ENCODER_STATUS_ADC_RAIL;
+            *status |= ENCODER_STATUS_ADC_RAIL;
         }
         return false;
     }
@@ -434,7 +408,7 @@ static bool build_track_calibration(const v2_encoder_track_cal_stats_t *stats,
     {
         if (status != NULL)
         {
-            *status |= V2_ENCODER_STATUS_CAL_FAILED;
+            *status |= ENCODER_STATUS_CAL_FAILED;
         }
         return false;
     }
@@ -448,7 +422,7 @@ static bool build_track_calibration(const v2_encoder_track_cal_stats_t *stats,
     {
         if (status != NULL)
         {
-            *status |= V2_ENCODER_STATUS_CAL_FAILED;
+            *status |= ENCODER_STATUS_CAL_FAILED;
         }
         return false;
     }
@@ -461,7 +435,7 @@ static bool build_track_calibration(const v2_encoder_track_cal_stats_t *stats,
     {
         if (status != NULL)
         {
-            *status |= V2_ENCODER_STATUS_CAL_FAILED;
+            *status |= ENCODER_STATUS_CAL_FAILED;
         }
         return false;
     }
@@ -472,7 +446,7 @@ static bool build_track_calibration(const v2_encoder_track_cal_stats_t *stats,
     {
         if (status != NULL)
         {
-            *status |= V2_ENCODER_STATUS_CAL_FAILED;
+            *status |= ENCODER_STATUS_CAL_FAILED;
         }
         return false;
     }
@@ -487,7 +461,7 @@ static bool build_track_calibration(const v2_encoder_track_cal_stats_t *stats,
     return true;
 }
 
-static bool transform_track(const v2_encoder_track_calibration_t *track,
+static bool transform_track(const encoder_track_calibration_t *track,
                             uint16_t sin_raw,
                             uint16_t cos_raw,
                             float *phase_deg,
@@ -498,7 +472,17 @@ static bool transform_track(const v2_encoder_track_calibration_t *track,
     const float sin_corr = (track->transform[0][0] * sin_centered) + (track->transform[0][1] * cos_centered);
     const float cos_corr = (track->transform[1][0] * sin_centered) + (track->transform[1][1] * cos_centered);
     const float local_mag = sqrtf((sin_corr * sin_corr) + (cos_corr * cos_corr));
-    const float local_phase = wrap_deg(atan2f(sin_corr, cos_corr) * (180.0f / V2_ENCODER_PI));
+    const float local_phase = wrap_deg(atan2f(sin_corr, cos_corr) * (180.0f / ENCODER_PI));
+
+    if (phase_deg != NULL)
+    {
+        *phase_deg = 0.0f;
+    }
+
+    if (mag != NULL)
+    {
+        *mag = 0.0f;
+    }
 
     if (!is_finite_float(local_mag) || !is_finite_float(local_phase))
     {
@@ -518,16 +502,16 @@ static bool transform_track(const v2_encoder_track_calibration_t *track,
     return true;
 }
 
-static bool transform_rough_track(const v2_encoder_rough_track_state_t *track,
+static bool transform_rough_track(const encoder_rough_track_state_t *track,
                                   uint16_t sin_raw,
                                   uint16_t cos_raw,
                                   float *phase_deg,
                                   float *mag)
 {
-    float center_sin = V2_ENCODER_DEFAULT_RAW_CENTER;
-    float center_cos = V2_ENCODER_DEFAULT_RAW_CENTER;
-    float amp_sin = V2_ENCODER_DEFAULT_RAW_AMPLITUDE;
-    float amp_cos = V2_ENCODER_DEFAULT_RAW_AMPLITUDE;
+    float center_sin = ENCODER_DEFAULT_RAW_CENTER;
+    float center_cos = ENCODER_DEFAULT_RAW_CENTER;
+    float amp_sin = ENCODER_DEFAULT_RAW_AMPLITUDE;
+    float amp_cos = ENCODER_DEFAULT_RAW_AMPLITUDE;
     float sin_corr;
     float cos_corr;
     float local_mag;
@@ -540,21 +524,21 @@ static bool transform_rough_track(const v2_encoder_rough_track_state_t *track,
         amp_sin = 0.5f * (float)(track->max_sin - track->min_sin);
         amp_cos = 0.5f * (float)(track->max_cos - track->min_cos);
 
-        if (amp_sin < V2_ENCODER_MIN_ROUGH_AMPLITUDE)
+        if (amp_sin < ENCODER_MIN_ROUGH_AMPLITUDE)
         {
-            amp_sin = V2_ENCODER_DEFAULT_RAW_AMPLITUDE;
+            amp_sin = ENCODER_DEFAULT_RAW_AMPLITUDE;
         }
 
-        if (amp_cos < V2_ENCODER_MIN_ROUGH_AMPLITUDE)
+        if (amp_cos < ENCODER_MIN_ROUGH_AMPLITUDE)
         {
-            amp_cos = V2_ENCODER_DEFAULT_RAW_AMPLITUDE;
+            amp_cos = ENCODER_DEFAULT_RAW_AMPLITUDE;
         }
     }
 
     sin_corr = ((float)sin_raw - center_sin) / amp_sin;
     cos_corr = ((float)cos_raw - center_cos) / amp_cos;
     local_mag = sqrtf((sin_corr * sin_corr) + (cos_corr * cos_corr));
-    local_phase = wrap_deg(atan2f(sin_corr, cos_corr) * (180.0f / V2_ENCODER_PI));
+    local_phase = wrap_deg(atan2f(sin_corr, cos_corr) * (180.0f / ENCODER_PI));
 
     if (!is_finite_float(local_mag) || !is_finite_float(local_phase))
     {
@@ -574,28 +558,32 @@ static bool transform_rough_track(const v2_encoder_rough_track_state_t *track,
     return true;
 }
 
-static void hold_last_angle(v2_encoder_state_t *state, v2_encoder_result_t *result)
+static void hold_last_angle(encoder_state_t *state, encoder_result_t *result)
 {
     if ((state != NULL) && state->has_valid_angle)
     {
         result->angle_deg = state->last_angle_deg;
+        result->angle_deg_raw = state->last_angle_raw_deg;
+        result->angle_deg_filtered = state->last_angle_deg;
         result->angle_counts = state->last_angle_counts;
     }
     else
     {
         result->angle_deg = 0.0f;
+        result->angle_deg_raw = 0.0f;
+        result->angle_deg_filtered = 0.0f;
         result->angle_counts = 0U;
     }
 }
 
-static void init_diag(v2_encoder_diag_t *diag)
+static void init_diag(encoder_diag_t *diag)
 {
     if (diag == NULL)
     {
         return;
     }
 
-    diag->mapping = V2_ENCODER_MAPPING_A1_16_A2_15;
+    diag->mapping = ENCODER_MAPPING_A1_16_A2_15;
     diag->dir16 = 1;
     diag->dir15 = 1;
     diag->angle_deg = 0.0f;
@@ -608,19 +596,19 @@ static void init_diag(v2_encoder_diag_t *diag)
 
 static uint32_t a1_weak_status(void)
 {
-    return (V2_ENCODER_CONFIG_MAPPING == V2_ENCODER_MAPPING_A1_16_A2_15) ?
-               V2_ENCODER_STATUS_TRACK16_WEAK :
-               V2_ENCODER_STATUS_TRACK15_WEAK;
+    return (ENCODER_CONFIG_MAPPING == ENCODER_MAPPING_A1_16_A2_15) ?
+               ENCODER_STATUS_TRACK16_WEAK :
+               ENCODER_STATUS_TRACK15_WEAK;
 }
 
 static uint32_t a2_weak_status(void)
 {
-    return (V2_ENCODER_CONFIG_MAPPING == V2_ENCODER_MAPPING_A1_16_A2_15) ?
-               V2_ENCODER_STATUS_TRACK15_WEAK :
-               V2_ENCODER_STATUS_TRACK16_WEAK;
+    return (ENCODER_CONFIG_MAPPING == ENCODER_MAPPING_A1_16_A2_15) ?
+               ENCODER_STATUS_TRACK15_WEAK :
+               ENCODER_STATUS_TRACK16_WEAK;
 }
 
-static void update_candidate_error(v2_encoder_solver_candidate_t *candidate)
+static void update_candidate_error(encoder_solver_candidate_t *candidate)
 {
     if (candidate == NULL)
     {
@@ -628,15 +616,15 @@ static void update_candidate_error(v2_encoder_solver_candidate_t *candidate)
     }
 
     candidate->phase16_error = fabsf(signed_angle_error_deg(
-        wrap_deg(candidate->angle * (float)V2_ENCODER_TRACK16_CYCLES), candidate->p16));
+        wrap_deg(candidate->angle * (float)ENCODER_TRACK16_CYCLES), candidate->p16));
     candidate->phase15_error = fabsf(signed_angle_error_deg(
-        wrap_deg(candidate->angle * (float)V2_ENCODER_TRACK15_CYCLES), candidate->p15));
+        wrap_deg(candidate->angle * (float)ENCODER_TRACK15_CYCLES), candidate->p15));
     candidate->error = max_float(candidate->phase16_error, candidate->phase15_error);
 }
 
-static void stabilize_vernier_branch(const v2_encoder_state_t *state, v2_encoder_solver_candidate_t *candidate)
+static void stabilize_vernier_branch(const encoder_state_t *state, encoder_solver_candidate_t *candidate)
 {
-    v2_encoder_solver_candidate_t adjusted;
+    encoder_solver_candidate_t adjusted;
     float current_step;
     float best_distance;
     int32_t branch;
@@ -647,7 +635,7 @@ static void stabilize_vernier_branch(const v2_encoder_state_t *state, v2_encoder
     }
 
     current_step = fabsf(signed_angle_error_deg(candidate->angle, state->last_angle_deg));
-    if (current_step <= V2_ENCODER_BRANCH_SLIP_STEP_DEG)
+    if (current_step <= ENCODER_BRANCH_SLIP_STEP_DEG)
     {
         return;
     }
@@ -657,10 +645,10 @@ static void stabilize_vernier_branch(const v2_encoder_state_t *state, v2_encoder
 
     for (branch = -8; branch <= 8; branch++)
     {
-        v2_encoder_solver_candidate_t trial = *candidate;
+        encoder_solver_candidate_t trial = *candidate;
         const float trial_distance =
             fabsf(signed_angle_error_deg(wrap_deg(candidate->angle +
-                                                  ((float)branch * V2_ENCODER_FINE_BRANCH_STEP_DEG)),
+                                                  ((float)branch * ENCODER_FINE_BRANCH_STEP_DEG)),
                                          state->last_angle_deg));
 
         if (trial_distance >= best_distance)
@@ -668,10 +656,10 @@ static void stabilize_vernier_branch(const v2_encoder_state_t *state, v2_encoder
             continue;
         }
 
-        trial.angle = wrap_deg(candidate->angle + ((float)branch * V2_ENCODER_FINE_BRANCH_STEP_DEG));
+        trial.angle = wrap_deg(candidate->angle + ((float)branch * ENCODER_FINE_BRANCH_STEP_DEG));
         update_candidate_error(&trial);
-        if ((trial.error <= V2_ENCODER_TRACK_PHASE_TOLERANCE_DEG) &&
-            (trial.error <= (candidate->error + V2_ENCODER_BRANCH_ERROR_MARGIN_DEG)))
+        if ((trial.error <= ENCODER_TRACK_PHASE_TOLERANCE_DEG) &&
+            (trial.error <= (candidate->error + ENCODER_BRANCH_ERROR_MARGIN_DEG)))
         {
             adjusted = trial;
             best_distance = trial_distance;
@@ -688,7 +676,7 @@ static bool solve_vernier_variant(float phase_a1,
                                   uint8_t mapping,
                                   int8_t dir16,
                                   int8_t dir15,
-                                  v2_encoder_solver_candidate_t *candidate)
+                                  encoder_solver_candidate_t *candidate)
 {
     float raw16;
     float raw15;
@@ -700,7 +688,7 @@ static bool solve_vernier_variant(float phase_a1,
         return false;
     }
 
-    if (mapping == V2_ENCODER_MAPPING_A1_16_A2_15)
+    if (mapping == ENCODER_MAPPING_A1_16_A2_15)
     {
         raw16 = phase_a1;
         raw15 = phase_a2;
@@ -727,9 +715,9 @@ static bool solve_vernier_variant(float phase_a1,
      * p16 then supplies high-resolution sub-cycle angle. Resolution improves ~16x
      * over raw coarse because p16's atan2 noise is divided by the cycle count. */
     {
-        float predicted16 = wrap_deg(candidate->coarse * (float)V2_ENCODER_TRACK16_CYCLES);
+        float predicted16 = wrap_deg(candidate->coarse * (float)ENCODER_TRACK16_CYCLES);
         float fine_delta = signed_angle_error_deg(candidate->p16, predicted16);
-        candidate->angle = wrap_deg(candidate->coarse + fine_delta / (float)V2_ENCODER_TRACK16_CYCLES);
+        candidate->angle = wrap_deg(candidate->coarse + fine_delta / (float)ENCODER_TRACK16_CYCLES);
     }
 
     update_candidate_error(candidate);
@@ -741,7 +729,7 @@ static bool solve_best_vernier(float phase_a1,
                                float phase_a2,
                                float zero_a1,
                                float zero_a2,
-                               v2_encoder_solver_candidate_t *best)
+                               encoder_solver_candidate_t *best)
 {
     if (best == NULL)
     {
@@ -752,13 +740,13 @@ static bool solve_best_vernier(float phase_a1,
                                  phase_a2,
                                  zero_a1,
                                  zero_a2,
-                                 V2_ENCODER_CONFIG_MAPPING,
-                                 V2_ENCODER_CONFIG_DIR16,
-                                 V2_ENCODER_CONFIG_DIR15,
+                                 ENCODER_CONFIG_MAPPING,
+                                 ENCODER_CONFIG_DIR16,
+                                 ENCODER_CONFIG_DIR15,
                                  best);
 }
 
-void v2_encoder_calibration_set_defaults(v2_encoder_calibration_t *calibration)
+void encoder_calibration_set_defaults(encoder_calibration_t *calibration)
 {
     if (calibration == NULL)
     {
@@ -772,33 +760,7 @@ void v2_encoder_calibration_set_defaults(v2_encoder_calibration_t *calibration)
     calibration->valid = false;
 }
 
-void v2_encoder_calibration_set_board_defaults(v2_encoder_calibration_t *calibration)
-{
-    if (calibration == NULL)
-    {
-        return;
-    }
-
-    set_track_cal(&calibration->a1,
-                  V2_ENCODER_BOARD_A1_CENTER_SIN,
-                  V2_ENCODER_BOARD_A1_CENTER_COS,
-                  V2_ENCODER_BOARD_A1_T00,
-                  V2_ENCODER_BOARD_A1_T01,
-                  V2_ENCODER_BOARD_A1_T10,
-                  V2_ENCODER_BOARD_A1_T11);
-    set_track_cal(&calibration->a2,
-                  V2_ENCODER_BOARD_A2_CENTER_SIN,
-                  V2_ENCODER_BOARD_A2_CENTER_COS,
-                  V2_ENCODER_BOARD_A2_T00,
-                  V2_ENCODER_BOARD_A2_T01,
-                  V2_ENCODER_BOARD_A2_T10,
-                  V2_ENCODER_BOARD_A2_T11);
-    calibration->phase_a1_zero_deg = V2_ENCODER_BOARD_A1_ZERO_DEG;
-    calibration->phase_a2_zero_deg = V2_ENCODER_BOARD_A2_ZERO_DEG;
-    calibration->valid = true;
-}
-
-void v2_encoder_cal_stats_init(v2_encoder_cal_stats_t *stats)
+void encoder_cal_stats_init(encoder_cal_stats_t *stats)
 {
     if (stats == NULL)
     {
@@ -809,7 +771,7 @@ void v2_encoder_cal_stats_init(v2_encoder_cal_stats_t *stats)
     init_track_stats(&stats->a2);
 }
 
-void v2_encoder_cal_stats_accumulate(v2_encoder_cal_stats_t *stats, const v2_encoder_raw_sample_t *sample)
+void encoder_cal_stats_accumulate(encoder_cal_stats_t *stats, const encoder_raw_sample_t *sample)
 {
     if ((stats == NULL) || (sample == NULL))
     {
@@ -820,28 +782,28 @@ void v2_encoder_cal_stats_accumulate(v2_encoder_cal_stats_t *stats, const v2_enc
     accumulate_track_stats(&stats->a2, sample->a2_sin_raw, sample->a2_cos_raw);
 }
 
-bool v2_encoder_cal_stats_build(const v2_encoder_cal_stats_t *stats,
-                                v2_encoder_calibration_t *calibration,
+bool encoder_cal_stats_build(const encoder_cal_stats_t *stats,
+                                encoder_calibration_t *calibration,
                                 uint32_t *status)
 {
-    uint32_t local_status = V2_ENCODER_STATUS_OK;
+    uint32_t local_status = ENCODER_STATUS_OK;
     bool ok;
 
     if (status != NULL)
     {
-        *status = V2_ENCODER_STATUS_OK;
+        *status = ENCODER_STATUS_OK;
     }
 
     if ((stats == NULL) || (calibration == NULL))
     {
         if (status != NULL)
         {
-            *status = V2_ENCODER_STATUS_CAL_FAILED;
+            *status = ENCODER_STATUS_CAL_FAILED;
         }
         return false;
     }
 
-    v2_encoder_calibration_set_defaults(calibration);
+    encoder_calibration_set_defaults(calibration);
 
     ok = build_track_calibration(&stats->a1,
                                  &calibration->a1,
@@ -857,32 +819,32 @@ bool v2_encoder_cal_stats_build(const v2_encoder_cal_stats_t *stats,
 
     if (status != NULL)
     {
-        *status = ok ? V2_ENCODER_STATUS_OK : (local_status | V2_ENCODER_STATUS_CAL_FAILED);
+        *status = ok ? ENCODER_STATUS_OK : (local_status | ENCODER_STATUS_CAL_FAILED);
     }
 
     return ok;
 }
 
-bool v2_encoder_capture_zero(v2_encoder_calibration_t *calibration,
-                             const v2_encoder_raw_sample_t *sample,
+bool encoder_capture_zero(encoder_calibration_t *calibration,
+                             const encoder_raw_sample_t *sample,
                              uint32_t *status)
 {
-    float phase_a1;
-    float phase_a2;
-    float mag_a1;
-    float mag_a2;
-    uint32_t local_status = V2_ENCODER_STATUS_OK;
+    float phase_a1 = 0.0f;
+    float phase_a2 = 0.0f;
+    float mag_a1 = 0.0f;
+    float mag_a2 = 0.0f;
+    uint32_t local_status = ENCODER_STATUS_OK;
 
     if (status != NULL)
     {
-        *status = V2_ENCODER_STATUS_OK;
+        *status = ENCODER_STATUS_OK;
     }
 
     if ((calibration == NULL) || (sample == NULL) || !calibration->valid)
     {
         if (status != NULL)
         {
-            *status = V2_ENCODER_STATUS_NOT_CALIBRATED | V2_ENCODER_STATUS_CAL_FAILED;
+            *status = ENCODER_STATUS_NOT_CALIBRATED | ENCODER_STATUS_CAL_FAILED;
         }
         return false;
     }
@@ -890,32 +852,32 @@ bool v2_encoder_capture_zero(v2_encoder_calibration_t *calibration,
     if (adc_is_rail(sample->a1_sin_raw) || adc_is_rail(sample->a1_cos_raw) ||
         adc_is_rail(sample->a2_sin_raw) || adc_is_rail(sample->a2_cos_raw))
     {
-        local_status |= V2_ENCODER_STATUS_ADC_RAIL;
+        local_status |= ENCODER_STATUS_ADC_RAIL;
     }
 
     if (!transform_track(&calibration->a1, sample->a1_sin_raw, sample->a1_cos_raw,
                          &phase_a1, &mag_a1))
     {
-        local_status |= a1_weak_status() | V2_ENCODER_STATUS_CAL_FAILED;
+        local_status |= a1_weak_status() | ENCODER_STATUS_CAL_FAILED;
     }
 
     if (!transform_track(&calibration->a2, sample->a2_sin_raw, sample->a2_cos_raw,
                          &phase_a2, &mag_a2))
     {
-        local_status |= a2_weak_status() | V2_ENCODER_STATUS_CAL_FAILED;
+        local_status |= a2_weak_status() | ENCODER_STATUS_CAL_FAILED;
     }
 
-    if (mag_a1 < V2_ENCODER_MIN_NORMALIZED_MAG)
+    if (mag_a1 < ENCODER_MIN_NORMALIZED_MAG)
     {
         local_status |= a1_weak_status();
     }
 
-    if (mag_a2 < V2_ENCODER_MIN_NORMALIZED_MAG)
+    if (mag_a2 < ENCODER_MIN_NORMALIZED_MAG)
     {
         local_status |= a2_weak_status();
     }
 
-    if (local_status != V2_ENCODER_STATUS_OK)
+    if (local_status != ENCODER_STATUS_OK)
     {
         if (status != NULL)
         {
@@ -930,25 +892,23 @@ bool v2_encoder_capture_zero(v2_encoder_calibration_t *calibration,
     return true;
 }
 
-void v2_encoder_state_init(v2_encoder_state_t *state)
+void encoder_state_init(encoder_state_t *state)
 {
     if (state == NULL)
     {
         return;
     }
 
-    state->last_angle_deg = 0.0f;
-    state->last_angle_counts = 0U;
-    state->has_valid_angle = false;
+    *state = (encoder_state_t){0};
     init_rough_track(&state->rough_a1);
     init_rough_track(&state->rough_a2);
 }
 
-void v2_encoder_process_with_diag(v2_encoder_state_t *state,
-                                  const v2_encoder_calibration_t *calibration,
-                                  const v2_encoder_raw_sample_t *sample,
-                                  v2_encoder_result_t *result,
-                                  v2_encoder_diag_t *diag)
+void encoder_process_with_diag(encoder_state_t *state,
+                                  const encoder_calibration_t *calibration,
+                                  const encoder_raw_sample_t *sample,
+                                  encoder_result_t *result,
+                                  encoder_diag_t *diag)
 {
     float phase_a1 = 0.0f;
     float phase_a2 = 0.0f;
@@ -956,8 +916,8 @@ void v2_encoder_process_with_diag(v2_encoder_state_t *state,
     float mag_a2 = 0.0f;
     float zero_a1 = 0.0f;
     float zero_a2 = 0.0f;
-    v2_encoder_solver_candidate_t best;
-    uint32_t status = V2_ENCODER_STATUS_OK;
+    encoder_solver_candidate_t best;
+    uint32_t status = ENCODER_STATUS_OK;
     bool have_calibration = false;
     bool publish_angle = false;
 
@@ -967,18 +927,20 @@ void v2_encoder_process_with_diag(v2_encoder_state_t *state,
     }
 
     result->angle_deg = 0.0f;
+    result->angle_deg_raw = 0.0f;
+    result->angle_deg_filtered = 0.0f;
     result->angle_counts = 0U;
     result->phase16_deg = 0.0f;
     result->phase15_deg = 0.0f;
     result->coarse_deg = 0.0f;
     result->mag16 = 0.0f;
     result->mag15 = 0.0f;
-    result->status = V2_ENCODER_STATUS_OK;
+    result->status = ENCODER_STATUS_OK;
     init_diag(diag);
 
     if (sample == NULL)
     {
-        result->status = V2_ENCODER_STATUS_NOT_CALIBRATED | V2_ENCODER_STATUS_HOLD_LAST;
+        result->status = ENCODER_STATUS_NOT_CALIBRATED | ENCODER_STATUS_HOLD_LAST;
         hold_last_angle(state, result);
         return;
     }
@@ -986,13 +948,13 @@ void v2_encoder_process_with_diag(v2_encoder_state_t *state,
     have_calibration = ((calibration != NULL) && calibration->valid);
     if (!have_calibration)
     {
-        status |= V2_ENCODER_STATUS_NOT_CALIBRATED;
+        status |= ENCODER_STATUS_NOT_CALIBRATED;
     }
 
     if (adc_is_rail(sample->a1_sin_raw) || adc_is_rail(sample->a1_cos_raw) ||
         adc_is_rail(sample->a2_sin_raw) || adc_is_rail(sample->a2_cos_raw))
     {
-        status |= V2_ENCODER_STATUS_ADC_RAIL;
+        status |= ENCODER_STATUS_ADC_RAIL;
     }
 
     if (have_calibration)
@@ -1006,7 +968,7 @@ void v2_encoder_process_with_diag(v2_encoder_state_t *state,
                              &phase_a1,
                              &mag_a1))
         {
-            status |= a1_weak_status() | V2_ENCODER_STATUS_CAL_FAILED;
+            status |= a1_weak_status() | ENCODER_STATUS_CAL_FAILED;
         }
 
         if (!transform_track(&calibration->a2,
@@ -1015,15 +977,15 @@ void v2_encoder_process_with_diag(v2_encoder_state_t *state,
                              &phase_a2,
                              &mag_a2))
         {
-            status |= a2_weak_status() | V2_ENCODER_STATUS_CAL_FAILED;
+            status |= a2_weak_status() | ENCODER_STATUS_CAL_FAILED;
         }
 
-        if (mag_a1 < V2_ENCODER_MIN_NORMALIZED_MAG)
+        if (mag_a1 < ENCODER_MIN_NORMALIZED_MAG)
         {
             status |= a1_weak_status();
         }
 
-        if (mag_a2 < V2_ENCODER_MIN_NORMALIZED_MAG)
+        if (mag_a2 < ENCODER_MIN_NORMALIZED_MAG)
         {
             status |= a2_weak_status();
         }
@@ -1042,7 +1004,7 @@ void v2_encoder_process_with_diag(v2_encoder_state_t *state,
                                    &phase_a1,
                                    &mag_a1))
         {
-            status |= a1_weak_status() | V2_ENCODER_STATUS_CAL_FAILED;
+            status |= a1_weak_status() | ENCODER_STATUS_CAL_FAILED;
         }
 
         if (!transform_rough_track((state != NULL) ? &state->rough_a2 : NULL,
@@ -1051,7 +1013,7 @@ void v2_encoder_process_with_diag(v2_encoder_state_t *state,
                                    &phase_a2,
                                    &mag_a2))
         {
-            status |= a2_weak_status() | V2_ENCODER_STATUS_CAL_FAILED;
+            status |= a2_weak_status() | ENCODER_STATUS_CAL_FAILED;
         }
     }
 
@@ -1061,13 +1023,13 @@ void v2_encoder_process_with_diag(v2_encoder_state_t *state,
         diag->phase_a2_deg = phase_a2;
     }
 
-    if ((status & ~(V2_ENCODER_STATUS_NOT_CALIBRATED)) == V2_ENCODER_STATUS_OK)
+    if ((status & ~(ENCODER_STATUS_NOT_CALIBRATED)) == ENCODER_STATUS_OK)
     {
         if (solve_best_vernier(phase_a1, phase_a2, zero_a1, zero_a2, &best))
         {
             stabilize_vernier_branch(state, &best);
 
-            if (best.mapping == V2_ENCODER_MAPPING_A1_16_A2_15)
+            if (best.mapping == ENCODER_MAPPING_A1_16_A2_15)
             {
                 result->mag16 = mag_a1;
                 result->mag15 = mag_a2;
@@ -1093,45 +1055,49 @@ void v2_encoder_process_with_diag(v2_encoder_state_t *state,
                 diag->phase15_error_deg = best.phase15_error;
             }
 
-            if (best.error > V2_ENCODER_TRACK_PHASE_TOLERANCE_DEG)
+            if (best.error > ENCODER_TRACK_PHASE_TOLERANCE_DEG)
             {
-                status |= V2_ENCODER_STATUS_TRACK_MISMATCH;
+                status |= ENCODER_STATUS_TRACK_MISMATCH;
             }
         }
         else
         {
-            status |= V2_ENCODER_STATUS_CAL_FAILED;
+            status |= ENCODER_STATUS_CAL_FAILED;
         }
     }
 
-    publish_angle = (((status & ~(V2_ENCODER_STATUS_NOT_CALIBRATED)) == V2_ENCODER_STATUS_OK) &&
-                     (have_calibration || (V2_ENCODER_ROUGH_ANGLE_ENABLE != 0U)));
+    publish_angle = (((status & ~(ENCODER_STATUS_NOT_CALIBRATED)) == ENCODER_STATUS_OK) &&
+                     (have_calibration || (ENCODER_ROUGH_ANGLE_ENABLE != 0U)));
 
     if (publish_angle)
     {
-        result->angle_deg = (diag != NULL) ? diag->angle_deg : best.angle;
+        const float raw_angle_deg = (diag != NULL) ? diag->angle_deg : best.angle;
+        result->angle_deg_raw = raw_angle_deg;
+        result->angle_deg_filtered = filter_published_angle(state, raw_angle_deg);
+        result->angle_deg = result->angle_deg_filtered;
         result->angle_counts = angle_to_counts(result->angle_deg);
 
         if (state != NULL)
         {
             state->last_angle_deg = result->angle_deg;
+            state->last_angle_raw_deg = result->angle_deg_raw;
             state->last_angle_counts = result->angle_counts;
             state->has_valid_angle = true;
         }
     }
     else
     {
-        status |= V2_ENCODER_STATUS_HOLD_LAST;
+        status |= ENCODER_STATUS_HOLD_LAST;
         hold_last_angle(state, result);
     }
 
     result->status = status;
 }
 
-void v2_encoder_process(v2_encoder_state_t *state,
-                        const v2_encoder_calibration_t *calibration,
-                        const v2_encoder_raw_sample_t *sample,
-                        v2_encoder_result_t *result)
+void encoder_process(encoder_state_t *state,
+                        const encoder_calibration_t *calibration,
+                        const encoder_raw_sample_t *sample,
+                        encoder_result_t *result)
 {
-    v2_encoder_process_with_diag(state, calibration, sample, result, NULL);
+    encoder_process_with_diag(state, calibration, sample, result, NULL);
 }
