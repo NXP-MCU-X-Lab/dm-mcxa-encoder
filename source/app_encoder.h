@@ -17,33 +17,19 @@
 #define ENCODER_STATUS_TRACK_MISMATCH (1UL << 4)
 #define ENCODER_STATUS_CAL_FAILED (1UL << 5)
 #define ENCODER_STATUS_HOLD_LAST (1UL << 6)
+#define ENCODER_STATUS_CAL_STORAGE_INVALID (1UL << 7)
+#define ENCODER_STATUS_FACTORY_CAL_REQUIRED (1UL << 8)
 
-#define ENCODER_MAPPING_A1_16_A2_15 (0U)
-#define ENCODER_MAPPING_A1_15_A2_16 (1U)
-
-#ifndef ENCODER_CONFIG_MAPPING
-#define ENCODER_CONFIG_MAPPING ENCODER_MAPPING_A1_16_A2_15
-#endif
-
-#ifndef ENCODER_CONFIG_DIR16
-#define ENCODER_CONFIG_DIR16 (1)
-#endif
-
-#ifndef ENCODER_CONFIG_DIR15
-#define ENCODER_CONFIG_DIR15 (1)
-#endif
-
-#ifndef ENCODER_ROUGH_ANGLE_ENABLE
-#define ENCODER_ROUGH_ANGLE_ENABLE (0U)
-#endif
-
-#ifndef ENCODER_FILTER_ENABLE
-#define ENCODER_FILTER_ENABLE (1U)
-#endif
-
-#ifndef ENCODER_FILTER_ALPHA
 #define ENCODER_FILTER_ALPHA (0.25f)
-#endif
+#define ENCODER_RUNTIME_TRIM_STEP_LIMIT_COUNTS (1.0f)
+#define ENCODER_RUNTIME_TRIM_TOTAL_LIMIT_COUNTS (512.0f)
+
+#define ENCODER_RUNTIME_TRIM_FREEZE_NONE (0UL)
+#define ENCODER_RUNTIME_TRIM_FREEZE_DISABLED (1UL)
+#define ENCODER_RUNTIME_TRIM_FREEZE_NOT_CALIBRATED (2UL)
+#define ENCODER_RUNTIME_TRIM_FREEZE_STATUS (3UL)
+#define ENCODER_RUNTIME_TRIM_FREEZE_COVERAGE (4UL)
+#define ENCODER_RUNTIME_TRIM_FREEZE_MAGNITUDE (5UL)
 
 typedef struct _encoder_raw_sample
 {
@@ -53,11 +39,15 @@ typedef struct _encoder_raw_sample
     uint16_t a2_cos_raw;
 } encoder_raw_sample_t;
 
+/* Lower-triangular ellipse correction: normalized = T * (raw - center).
+ * The upper-right element is zero by Cholesky construction, so it is omitted. */
 typedef struct _encoder_track_calibration
 {
     float center_sin;
     float center_cos;
-    float transform[2][2];
+    float t00;
+    float t10;
+    float t11;
 } encoder_track_calibration_t;
 
 typedef struct _encoder_calibration
@@ -68,6 +58,14 @@ typedef struct _encoder_calibration
     float phase_a2_zero_deg;
     bool valid;
 } encoder_calibration_t;
+
+typedef struct _encoder_cal_quality
+{
+    uint32_t sample_count;
+    uint32_t status;
+    float mag16;
+    float mag15;
+} encoder_cal_quality_t;
 
 typedef struct _encoder_result
 {
@@ -85,9 +83,6 @@ typedef struct _encoder_result
 
 typedef struct _encoder_diag
 {
-    uint8_t mapping;
-    int8_t dir16;
-    int8_t dir15;
     float angle_deg;
     float coarse_angle_deg;
     float phase16_error_deg;
@@ -126,15 +121,6 @@ typedef struct _encoder_cal_stats
     encoder_track_cal_stats_t a2;
 } encoder_cal_stats_t;
 
-typedef struct _encoder_rough_track_state
-{
-    bool initialized;
-    uint16_t min_sin;
-    uint16_t max_sin;
-    uint16_t min_cos;
-    uint16_t max_cos;
-} encoder_rough_track_state_t;
-
 typedef struct _encoder_state
 {
     float last_angle_deg;
@@ -143,9 +129,30 @@ typedef struct _encoder_state
     uint32_t last_angle_counts;
     bool has_valid_angle;
     bool filter_initialized;
-    encoder_rough_track_state_t rough_a1;
-    encoder_rough_track_state_t rough_a2;
 } encoder_state_t;
+
+typedef struct _encoder_runtime_trim
+{
+    bool enabled;
+    bool active;
+    uint32_t freeze_reason;
+    uint32_t accepted_samples;
+    uint32_t update_count;
+    float a1_center_sin_delta;
+    float a1_center_cos_delta;
+    float a2_center_sin_delta;
+    float a2_center_cos_delta;
+    uint32_t window_count;
+    uint32_t coverage_mask;
+    uint16_t a1_sin_min;
+    uint16_t a1_sin_max;
+    uint16_t a1_cos_min;
+    uint16_t a1_cos_max;
+    uint16_t a2_sin_min;
+    uint16_t a2_sin_max;
+    uint16_t a2_cos_min;
+    uint16_t a2_cos_max;
+} encoder_runtime_trim_t;
 
 void encoder_calibration_set_defaults(encoder_calibration_t *calibration);
 void encoder_calibration_set_board_defaults(encoder_calibration_t *calibration);
@@ -158,14 +165,19 @@ bool encoder_capture_zero(encoder_calibration_t *calibration,
                           const encoder_raw_sample_t *sample,
                           uint32_t *status);
 void encoder_state_init(encoder_state_t *state);
+void encoder_runtime_trim_init(encoder_runtime_trim_t *trim);
+void encoder_runtime_trim_reset(encoder_runtime_trim_t *trim);
+void encoder_runtime_trim_apply(const encoder_calibration_t *factory,
+                                const encoder_runtime_trim_t *trim,
+                                encoder_calibration_t *effective);
+void encoder_runtime_trim_update(encoder_runtime_trim_t *trim,
+                                 const encoder_calibration_t *factory,
+                                 const encoder_raw_sample_t *sample,
+                                 const encoder_result_t *result);
 void encoder_process(encoder_state_t *state,
                      const encoder_calibration_t *calibration,
                      const encoder_raw_sample_t *sample,
-                     encoder_result_t *result);
-void encoder_process_with_diag(encoder_state_t *state,
-                               const encoder_calibration_t *calibration,
-                               const encoder_raw_sample_t *sample,
-                               encoder_result_t *result,
-                               encoder_diag_t *diag);
+                     encoder_result_t *result,
+                     encoder_diag_t *diag);
 
 #endif /* APP_ENCODER_H_ */

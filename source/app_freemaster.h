@@ -15,13 +15,12 @@ extern "C" {
 
 void AppFreemaster_Init(void);
 
-extern volatile uint8_t fm_cal_enable;
-extern volatile uint8_t fm_cal_done;
-extern volatile uint16_t fm_cal_progress;
-extern volatile uint8_t fm_cal_state;
-extern volatile uint32_t fm_cal_status;
 extern volatile uint8_t fm_reset_ctrl;
 extern volatile uint8_t fm_zero_ctrl;
+extern volatile uint8_t fm_factory_cal_ctrl;
+extern volatile uint8_t fm_factory_cal_state;
+extern volatile uint8_t fm_factory_cal_progress;
+extern volatile uint32_t fm_factory_cal_status;
 extern volatile uint8_t fm_encoder_valid;
 extern volatile uint32_t fm_encoder_status;
 #ifdef __cplusplus

@@ -776,6 +776,11 @@
               <FilePath>.\source\app_encoder_defaults.c</FilePath>
             </File>
             <File>
+              <FileName>app_encoder_storage.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>.\source\app_encoder_storage.c</FilePath>
+            </File>
+            <File>
               <FileName>app_encoder_runtime.c</FileName>
               <FileType>1</FileType>
               <FilePath>.\source\app_encoder_runtime.c</FilePath>

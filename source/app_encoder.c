@@ -13,16 +13,18 @@
 #define ENCODER_TRACK_PHASE_TOLERANCE_DEG (45.0f)
 #define ENCODER_DEFAULT_RAW_CENTER (32768.0f)
 #define ENCODER_DEFAULT_RAW_AMPLITUDE (16384.0f)
-#define ENCODER_MIN_ROUGH_AMPLITUDE (64.0f)
 #define ENCODER_FINE_BRANCH_STEP_DEG (360.0f / (float)ENCODER_TRACK16_CYCLES)
 #define ENCODER_BRANCH_SLIP_STEP_DEG (0.5f * ENCODER_FINE_BRANCH_STEP_DEG)
 #define ENCODER_BRANCH_ERROR_MARGIN_DEG (5.0f)
+#define ENCODER_RUNTIME_TRIM_MAG_MIN (0.75f)
+#define ENCODER_RUNTIME_TRIM_MAG_MAX (1.25f)
+#define ENCODER_RUNTIME_TRIM_BIN_COUNT (16U)
+#define ENCODER_RUNTIME_TRIM_FULL_COVERAGE_MASK (0xFFFFUL)
+#define ENCODER_RUNTIME_TRIM_MIN_WINDOW_SAMPLES (512U)
+#define ENCODER_RUNTIME_TRIM_ALPHA (0.125f)
 
 typedef struct _encoder_solver_candidate
 {
-    uint8_t mapping;
-    int8_t dir16;
-    int8_t dir15;
     float p16;
     float p15;
     float coarse;
@@ -81,13 +83,27 @@ static uint32_t angle_to_counts(float angle_deg)
     return counts;
 }
 
+static float clamp_float(float value, float min_value, float max_value)
+{
+    if (value < min_value)
+    {
+        return min_value;
+    }
+
+    if (value > max_value)
+    {
+        return max_value;
+    }
+
+    return value;
+}
+
 static float filter_published_angle(encoder_state_t *state, float raw_angle_deg)
 {
-#if ENCODER_FILTER_ENABLE != 0U
     const float alpha = ENCODER_FILTER_ALPHA;
     float filtered;
 
-    if ((state == NULL) || (alpha <= 0.0f) || (alpha >= 1.0f))
+    if (state == NULL)
     {
         return wrap_deg(raw_angle_deg);
     }
@@ -103,10 +119,6 @@ static float filter_published_angle(encoder_state_t *state, float raw_angle_deg)
                         (signed_angle_error_deg(raw_angle_deg, state->filtered_angle_deg) * alpha));
     state->filtered_angle_deg = filtered;
     return filtered;
-#else
-    (void)state;
-    return wrap_deg(raw_angle_deg);
-#endif
 }
 
 static bool adc_is_rail(uint16_t raw)
@@ -123,10 +135,9 @@ static void set_identity_track_cal(encoder_track_calibration_t *track)
 
     track->center_sin = ENCODER_DEFAULT_RAW_CENTER;
     track->center_cos = ENCODER_DEFAULT_RAW_CENTER;
-    track->transform[0][0] = 1.0f / ENCODER_DEFAULT_RAW_AMPLITUDE;
-    track->transform[0][1] = 0.0f;
-    track->transform[1][0] = 0.0f;
-    track->transform[1][1] = 1.0f / ENCODER_DEFAULT_RAW_AMPLITUDE;
+    track->t00 = 1.0f / ENCODER_DEFAULT_RAW_AMPLITUDE;
+    track->t10 = 0.0f;
+    track->t11 = 1.0f / ENCODER_DEFAULT_RAW_AMPLITUDE;
 }
 
 static void init_track_stats(encoder_track_cal_stats_t *stats)
@@ -134,20 +145,6 @@ static void init_track_stats(encoder_track_cal_stats_t *stats)
     *stats = (encoder_track_cal_stats_t){0};
     stats->min_sin = UINT16_MAX;
     stats->min_cos = UINT16_MAX;
-}
-
-static void init_rough_track(encoder_rough_track_state_t *track)
-{
-    if (track == NULL)
-    {
-        return;
-    }
-
-    track->initialized = false;
-    track->min_sin = UINT16_MAX;
-    track->max_sin = 0U;
-    track->min_cos = UINT16_MAX;
-    track->max_cos = 0U;
 }
 
 static void update_min_max(uint16_t raw, uint16_t *min_raw, uint16_t *max_raw)
@@ -163,25 +160,36 @@ static void update_min_max(uint16_t raw, uint16_t *min_raw, uint16_t *max_raw)
     }
 }
 
-static void update_rough_track(encoder_rough_track_state_t *track, uint16_t sin_raw, uint16_t cos_raw)
+static void reset_trim_window(encoder_runtime_trim_t *trim)
 {
-    if (track == NULL)
+    if (trim == NULL)
     {
         return;
     }
 
-    if (!track->initialized)
-    {
-        track->initialized = true;
-        track->min_sin = sin_raw;
-        track->max_sin = sin_raw;
-        track->min_cos = cos_raw;
-        track->max_cos = cos_raw;
-        return;
-    }
+    trim->window_count = 0U;
+    trim->coverage_mask = 0U;
+    trim->a1_sin_min = UINT16_MAX;
+    trim->a1_sin_max = 0U;
+    trim->a1_cos_min = UINT16_MAX;
+    trim->a1_cos_max = 0U;
+    trim->a2_sin_min = UINT16_MAX;
+    trim->a2_sin_max = 0U;
+    trim->a2_cos_min = UINT16_MAX;
+    trim->a2_cos_max = 0U;
+}
 
-    update_min_max(sin_raw, &track->min_sin, &track->max_sin);
-    update_min_max(cos_raw, &track->min_cos, &track->max_cos);
+static float update_trim_delta(float current_delta, float desired_delta)
+{
+    float step = (desired_delta - current_delta) * ENCODER_RUNTIME_TRIM_ALPHA;
+
+    step = clamp_float(step,
+                       -ENCODER_RUNTIME_TRIM_STEP_LIMIT_COUNTS,
+                       ENCODER_RUNTIME_TRIM_STEP_LIMIT_COUNTS);
+
+    return clamp_float(current_delta + step,
+                       -ENCODER_RUNTIME_TRIM_TOTAL_LIMIT_COUNTS,
+                       ENCODER_RUNTIME_TRIM_TOTAL_LIMIT_COUNTS);
 }
 
 static void accumulate_track_stats(encoder_track_cal_stats_t *stats, uint16_t sin_raw, uint16_t cos_raw)
@@ -192,25 +200,8 @@ static void accumulate_track_stats(encoder_track_cal_stats_t *stats, uint16_t si
     const double cos2 = cos_value * cos_value;
     const double sincos = sin_value * cos_value;
 
-    if (sin_raw < stats->min_sin)
-    {
-        stats->min_sin = sin_raw;
-    }
-
-    if (sin_raw > stats->max_sin)
-    {
-        stats->max_sin = sin_raw;
-    }
-
-    if (cos_raw < stats->min_cos)
-    {
-        stats->min_cos = cos_raw;
-    }
-
-    if (cos_raw > stats->max_cos)
-    {
-        stats->max_cos = cos_raw;
-    }
+    update_min_max(sin_raw, &stats->min_sin, &stats->max_sin);
+    update_min_max(cos_raw, &stats->min_cos, &stats->max_cos);
 
     stats->count++;
     if (adc_is_rail(sin_raw) || adc_is_rail(cos_raw))
@@ -234,6 +225,7 @@ static void accumulate_track_stats(encoder_track_cal_stats_t *stats, uint16_t si
     stats->sum_sin2cos2 += sin2 * cos2;
 }
 
+/* Gauss elimination with partial pivoting, 3x3 only. */
 static bool solve_3x3(double matrix[3][3], double vector[3], double result[3])
 {
     double aug[3][4];
@@ -308,6 +300,11 @@ static bool solve_3x3(double matrix[3][3], double vector[3], double result[3])
     return true;
 }
 
+/* Heydemann-style ellipse correction:
+ *   center is taken from min/max (density-robust)
+ *   shape is an algebraic LSQ fit of a*x^2 + b*xy + c*y^2 = 1 on centered samples.
+ *   Algebraic residual is zero for any sample on the true ellipse, so uneven sample
+ *   density along the rotor angle does not bias the fit. */
 static bool build_track_calibration(const encoder_track_cal_stats_t *stats,
                                     encoder_track_calibration_t *track,
                                     uint32_t weak_status,
@@ -335,10 +332,6 @@ static bool build_track_calibration(const encoder_track_cal_stats_t *stats,
         return false;
     }
 
-    /* Fit the centered ellipse equation:
-     *   a*x^2 + b*x*y + c*y^2 = 1
-     * using least squares. Unlike covariance whitening, this depends on the
-     * ellipse equation itself, not on how long the rotor stayed at each angle. */
     const float center_sin = 0.5f * ((float)stats->min_sin + (float)stats->max_sin);
     const float center_cos = 0.5f * ((float)stats->min_cos + (float)stats->max_cos);
     const double n = (double)stats->count;
@@ -427,6 +420,7 @@ static bool build_track_calibration(const encoder_track_cal_stats_t *stats,
         return false;
     }
 
+    /* Lower-triangular Cholesky: T^T*T = [[m00, m01], [m01, m11]]. */
     t11 = sqrt(m11);
     t10 = m01 / t11;
     t00_sq = m00 - (t10 * t10);
@@ -453,10 +447,9 @@ static bool build_track_calibration(const encoder_track_cal_stats_t *stats,
 
     track->center_sin = center_sin;
     track->center_cos = center_cos;
-    track->transform[0][0] = (float)t00;
-    track->transform[0][1] = 0.0f;
-    track->transform[1][0] = (float)t10;
-    track->transform[1][1] = (float)t11;
+    track->t00 = (float)t00;
+    track->t10 = (float)t10;
+    track->t11 = (float)t11;
 
     return true;
 }
@@ -469,8 +462,8 @@ static bool transform_track(const encoder_track_calibration_t *track,
 {
     const float sin_centered = (float)sin_raw - track->center_sin;
     const float cos_centered = (float)cos_raw - track->center_cos;
-    const float sin_corr = (track->transform[0][0] * sin_centered) + (track->transform[0][1] * cos_centered);
-    const float cos_corr = (track->transform[1][0] * sin_centered) + (track->transform[1][1] * cos_centered);
+    const float sin_corr = track->t00 * sin_centered;
+    const float cos_corr = (track->t10 * sin_centered) + (track->t11 * cos_centered);
     const float local_mag = sqrtf((sin_corr * sin_corr) + (cos_corr * cos_corr));
     const float local_phase = wrap_deg(atan2f(sin_corr, cos_corr) * (180.0f / ENCODER_PI));
 
@@ -478,67 +471,10 @@ static bool transform_track(const encoder_track_calibration_t *track,
     {
         *phase_deg = 0.0f;
     }
-
     if (mag != NULL)
     {
         *mag = 0.0f;
     }
-
-    if (!is_finite_float(local_mag) || !is_finite_float(local_phase))
-    {
-        return false;
-    }
-
-    if (phase_deg != NULL)
-    {
-        *phase_deg = local_phase;
-    }
-
-    if (mag != NULL)
-    {
-        *mag = local_mag;
-    }
-
-    return true;
-}
-
-static bool transform_rough_track(const encoder_rough_track_state_t *track,
-                                  uint16_t sin_raw,
-                                  uint16_t cos_raw,
-                                  float *phase_deg,
-                                  float *mag)
-{
-    float center_sin = ENCODER_DEFAULT_RAW_CENTER;
-    float center_cos = ENCODER_DEFAULT_RAW_CENTER;
-    float amp_sin = ENCODER_DEFAULT_RAW_AMPLITUDE;
-    float amp_cos = ENCODER_DEFAULT_RAW_AMPLITUDE;
-    float sin_corr;
-    float cos_corr;
-    float local_mag;
-    float local_phase;
-
-    if ((track != NULL) && track->initialized)
-    {
-        center_sin = 0.5f * ((float)track->min_sin + (float)track->max_sin);
-        center_cos = 0.5f * ((float)track->min_cos + (float)track->max_cos);
-        amp_sin = 0.5f * (float)(track->max_sin - track->min_sin);
-        amp_cos = 0.5f * (float)(track->max_cos - track->min_cos);
-
-        if (amp_sin < ENCODER_MIN_ROUGH_AMPLITUDE)
-        {
-            amp_sin = ENCODER_DEFAULT_RAW_AMPLITUDE;
-        }
-
-        if (amp_cos < ENCODER_MIN_ROUGH_AMPLITUDE)
-        {
-            amp_cos = ENCODER_DEFAULT_RAW_AMPLITUDE;
-        }
-    }
-
-    sin_corr = ((float)sin_raw - center_sin) / amp_sin;
-    cos_corr = ((float)cos_raw - center_cos) / amp_cos;
-    local_mag = sqrtf((sin_corr * sin_corr) + (cos_corr * cos_corr));
-    local_phase = wrap_deg(atan2f(sin_corr, cos_corr) * (180.0f / ENCODER_PI));
 
     if (!is_finite_float(local_mag) || !is_finite_float(local_phase))
     {
@@ -583,29 +519,12 @@ static void init_diag(encoder_diag_t *diag)
         return;
     }
 
-    diag->mapping = ENCODER_MAPPING_A1_16_A2_15;
-    diag->dir16 = 1;
-    diag->dir15 = 1;
     diag->angle_deg = 0.0f;
     diag->coarse_angle_deg = 0.0f;
     diag->phase16_error_deg = 360.0f;
     diag->phase15_error_deg = 360.0f;
     diag->phase_a1_deg = 0.0f;
     diag->phase_a2_deg = 0.0f;
-}
-
-static uint32_t a1_weak_status(void)
-{
-    return (ENCODER_CONFIG_MAPPING == ENCODER_MAPPING_A1_16_A2_15) ?
-               ENCODER_STATUS_TRACK16_WEAK :
-               ENCODER_STATUS_TRACK15_WEAK;
-}
-
-static uint32_t a2_weak_status(void)
-{
-    return (ENCODER_CONFIG_MAPPING == ENCODER_MAPPING_A1_16_A2_15) ?
-               ENCODER_STATUS_TRACK15_WEAK :
-               ENCODER_STATUS_TRACK16_WEAK;
 }
 
 static void update_candidate_error(encoder_solver_candidate_t *candidate)
@@ -622,6 +541,9 @@ static void update_candidate_error(encoder_solver_candidate_t *candidate)
     candidate->error = max_float(candidate->phase16_error, candidate->phase15_error);
 }
 
+/* Vernier branch-slip guard: if the angle jumped by more than half a fine cycle
+ * in a single sample, search ±8 fine branches and pick the one closest to the
+ * previous angle. Prevents single-frame ADC glitches from flipping branches. */
 static void stabilize_vernier_branch(const encoder_state_t *state, encoder_solver_candidate_t *candidate)
 {
     encoder_solver_candidate_t adjusted;
@@ -669,81 +591,34 @@ static void stabilize_vernier_branch(const encoder_state_t *state, encoder_solve
     *candidate = adjusted;
 }
 
-static bool solve_vernier_variant(float phase_a1,
-                                  float phase_a2,
-                                  float zero_a1,
-                                  float zero_a2,
-                                  uint8_t mapping,
-                                  int8_t dir16,
-                                  int8_t dir15,
-                                  encoder_solver_candidate_t *candidate)
+/* Vernier solve: 16-cycle track gives high resolution, 15-cycle track resolves
+ * which of the 16 electrical periods we are in. coarse = wrap(p16 - p15)
+ * picks the cycle; p16 supplies sub-cycle fine angle. */
+static bool solve_vernier(float phase_a1,
+                          float phase_a2,
+                          float zero_a1,
+                          float zero_a2,
+                          encoder_solver_candidate_t *candidate)
 {
-    float raw16;
-    float raw15;
-    float zero16;
-    float zero15;
+    float predicted16;
+    float fine_delta;
 
     if (candidate == NULL)
     {
         return false;
     }
 
-    if (mapping == ENCODER_MAPPING_A1_16_A2_15)
-    {
-        raw16 = phase_a1;
-        raw15 = phase_a2;
-        zero16 = zero_a1;
-        zero15 = zero_a2;
-    }
-    else
-    {
-        raw16 = phase_a2;
-        raw15 = phase_a1;
-        zero16 = zero_a2;
-        zero15 = zero_a1;
-    }
-
-    candidate->mapping = mapping;
-    candidate->dir16 = dir16;
-    candidate->dir15 = dir15;
-    candidate->p16 = wrap_deg((raw16 - zero16) * (float)dir16);
-    candidate->p15 = wrap_deg((raw15 - zero15) * (float)dir15);
+    candidate->p16 = wrap_deg(phase_a1 - zero_a1);
+    candidate->p15 = wrap_deg(phase_a2 - zero_a2);
     candidate->coarse = wrap_deg(candidate->p16 - candidate->p15);
 
-    /* Nonius/Vernier fine refinement.
-     * Coarse (p16 - p15) selects which of 16 electrical cycles p16 belongs to;
-     * p16 then supplies high-resolution sub-cycle angle. Resolution improves ~16x
-     * over raw coarse because p16's atan2 noise is divided by the cycle count. */
-    {
-        float predicted16 = wrap_deg(candidate->coarse * (float)ENCODER_TRACK16_CYCLES);
-        float fine_delta = signed_angle_error_deg(candidate->p16, predicted16);
-        candidate->angle = wrap_deg(candidate->coarse + fine_delta / (float)ENCODER_TRACK16_CYCLES);
-    }
+    predicted16 = wrap_deg(candidate->coarse * (float)ENCODER_TRACK16_CYCLES);
+    fine_delta = signed_angle_error_deg(candidate->p16, predicted16);
+    candidate->angle = wrap_deg(candidate->coarse + fine_delta / (float)ENCODER_TRACK16_CYCLES);
 
     update_candidate_error(candidate);
 
     return (is_finite_float(candidate->angle) && is_finite_float(candidate->error));
-}
-
-static bool solve_best_vernier(float phase_a1,
-                               float phase_a2,
-                               float zero_a1,
-                               float zero_a2,
-                               encoder_solver_candidate_t *best)
-{
-    if (best == NULL)
-    {
-        return false;
-    }
-
-    return solve_vernier_variant(phase_a1,
-                                 phase_a2,
-                                 zero_a1,
-                                 zero_a2,
-                                 ENCODER_CONFIG_MAPPING,
-                                 ENCODER_CONFIG_DIR16,
-                                 ENCODER_CONFIG_DIR15,
-                                 best);
 }
 
 void encoder_calibration_set_defaults(encoder_calibration_t *calibration)
@@ -783,8 +658,8 @@ void encoder_cal_stats_accumulate(encoder_cal_stats_t *stats, const encoder_raw_
 }
 
 bool encoder_cal_stats_build(const encoder_cal_stats_t *stats,
-                                encoder_calibration_t *calibration,
-                                uint32_t *status)
+                             encoder_calibration_t *calibration,
+                             uint32_t *status)
 {
     uint32_t local_status = ENCODER_STATUS_OK;
     bool ok;
@@ -805,14 +680,10 @@ bool encoder_cal_stats_build(const encoder_cal_stats_t *stats,
 
     encoder_calibration_set_defaults(calibration);
 
-    ok = build_track_calibration(&stats->a1,
-                                 &calibration->a1,
-                                 a1_weak_status(),
-                                 &local_status);
-    ok = build_track_calibration(&stats->a2,
-                                 &calibration->a2,
-                                 a2_weak_status(),
-                                 &local_status) &&
+    ok = build_track_calibration(&stats->a1, &calibration->a1,
+                                 ENCODER_STATUS_TRACK16_WEAK, &local_status);
+    ok = build_track_calibration(&stats->a2, &calibration->a2,
+                                 ENCODER_STATUS_TRACK15_WEAK, &local_status) &&
          ok;
 
     calibration->valid = ok;
@@ -826,8 +697,8 @@ bool encoder_cal_stats_build(const encoder_cal_stats_t *stats,
 }
 
 bool encoder_capture_zero(encoder_calibration_t *calibration,
-                             const encoder_raw_sample_t *sample,
-                             uint32_t *status)
+                          const encoder_raw_sample_t *sample,
+                          uint32_t *status)
 {
     float phase_a1 = 0.0f;
     float phase_a2 = 0.0f;
@@ -858,23 +729,23 @@ bool encoder_capture_zero(encoder_calibration_t *calibration,
     if (!transform_track(&calibration->a1, sample->a1_sin_raw, sample->a1_cos_raw,
                          &phase_a1, &mag_a1))
     {
-        local_status |= a1_weak_status() | ENCODER_STATUS_CAL_FAILED;
+        local_status |= ENCODER_STATUS_TRACK16_WEAK | ENCODER_STATUS_CAL_FAILED;
     }
 
     if (!transform_track(&calibration->a2, sample->a2_sin_raw, sample->a2_cos_raw,
                          &phase_a2, &mag_a2))
     {
-        local_status |= a2_weak_status() | ENCODER_STATUS_CAL_FAILED;
+        local_status |= ENCODER_STATUS_TRACK15_WEAK | ENCODER_STATUS_CAL_FAILED;
     }
 
     if (mag_a1 < ENCODER_MIN_NORMALIZED_MAG)
     {
-        local_status |= a1_weak_status();
+        local_status |= ENCODER_STATUS_TRACK16_WEAK;
     }
 
     if (mag_a2 < ENCODER_MIN_NORMALIZED_MAG)
     {
-        local_status |= a2_weak_status();
+        local_status |= ENCODER_STATUS_TRACK15_WEAK;
     }
 
     if (local_status != ENCODER_STATUS_OK)
@@ -900,26 +771,177 @@ void encoder_state_init(encoder_state_t *state)
     }
 
     *state = (encoder_state_t){0};
-    init_rough_track(&state->rough_a1);
-    init_rough_track(&state->rough_a2);
 }
 
-void encoder_process_with_diag(encoder_state_t *state,
-                                  const encoder_calibration_t *calibration,
-                                  const encoder_raw_sample_t *sample,
-                                  encoder_result_t *result,
-                                  encoder_diag_t *diag)
+void encoder_runtime_trim_init(encoder_runtime_trim_t *trim)
+{
+    if (trim == NULL)
+    {
+        return;
+    }
+
+    *trim = (encoder_runtime_trim_t){0};
+    trim->enabled = true;
+    trim->freeze_reason = ENCODER_RUNTIME_TRIM_FREEZE_COVERAGE;
+    reset_trim_window(trim);
+}
+
+void encoder_runtime_trim_reset(encoder_runtime_trim_t *trim)
+{
+    bool enabled;
+
+    if (trim == NULL)
+    {
+        return;
+    }
+
+    enabled = trim->enabled;
+    encoder_runtime_trim_init(trim);
+    trim->enabled = enabled;
+}
+
+void encoder_runtime_trim_apply(const encoder_calibration_t *factory,
+                                const encoder_runtime_trim_t *trim,
+                                encoder_calibration_t *effective)
+{
+    if ((factory == NULL) || (effective == NULL))
+    {
+        return;
+    }
+
+    *effective = *factory;
+    if ((trim == NULL) || !trim->enabled)
+    {
+        return;
+    }
+
+    effective->a1.center_sin += trim->a1_center_sin_delta;
+    effective->a1.center_cos += trim->a1_center_cos_delta;
+    effective->a2.center_sin += trim->a2_center_sin_delta;
+    effective->a2.center_cos += trim->a2_center_cos_delta;
+}
+
+void encoder_runtime_trim_update(encoder_runtime_trim_t *trim,
+                                 const encoder_calibration_t *factory,
+                                 const encoder_raw_sample_t *sample,
+                                 const encoder_result_t *result)
+{
+    uint32_t bin;
+    float a1_sin_center;
+    float a1_cos_center;
+    float a2_sin_center;
+    float a2_cos_center;
+
+    if ((trim == NULL) || (sample == NULL) || (result == NULL))
+    {
+        return;
+    }
+
+    if (!trim->enabled)
+    {
+        trim->active = false;
+        trim->freeze_reason = ENCODER_RUNTIME_TRIM_FREEZE_DISABLED;
+        reset_trim_window(trim);
+        return;
+    }
+
+    if ((factory == NULL) || !factory->valid)
+    {
+        trim->active = false;
+        trim->freeze_reason = ENCODER_RUNTIME_TRIM_FREEZE_NOT_CALIBRATED;
+        reset_trim_window(trim);
+        return;
+    }
+
+    if (result->status != ENCODER_STATUS_OK)
+    {
+        trim->active = false;
+        trim->freeze_reason = ENCODER_RUNTIME_TRIM_FREEZE_STATUS;
+        reset_trim_window(trim);
+        return;
+    }
+
+    if ((result->mag16 < ENCODER_RUNTIME_TRIM_MAG_MIN) ||
+        (result->mag16 > ENCODER_RUNTIME_TRIM_MAG_MAX) ||
+        (result->mag15 < ENCODER_RUNTIME_TRIM_MAG_MIN) ||
+        (result->mag15 > ENCODER_RUNTIME_TRIM_MAG_MAX))
+    {
+        trim->active = false;
+        trim->freeze_reason = ENCODER_RUNTIME_TRIM_FREEZE_MAGNITUDE;
+        reset_trim_window(trim);
+        return;
+    }
+
+    if (adc_is_rail(sample->a1_sin_raw) || adc_is_rail(sample->a1_cos_raw) ||
+        adc_is_rail(sample->a2_sin_raw) || adc_is_rail(sample->a2_cos_raw))
+    {
+        trim->active = false;
+        trim->freeze_reason = ENCODER_RUNTIME_TRIM_FREEZE_STATUS;
+        reset_trim_window(trim);
+        return;
+    }
+
+    update_min_max(sample->a1_sin_raw, &trim->a1_sin_min, &trim->a1_sin_max);
+    update_min_max(sample->a1_cos_raw, &trim->a1_cos_min, &trim->a1_cos_max);
+    update_min_max(sample->a2_sin_raw, &trim->a2_sin_min, &trim->a2_sin_max);
+    update_min_max(sample->a2_cos_raw, &trim->a2_cos_min, &trim->a2_cos_max);
+
+    bin = (uint32_t)((wrap_deg(result->angle_deg_raw) *
+                      (float)ENCODER_RUNTIME_TRIM_BIN_COUNT) /
+                     360.0f);
+    if (bin >= ENCODER_RUNTIME_TRIM_BIN_COUNT)
+    {
+        bin = ENCODER_RUNTIME_TRIM_BIN_COUNT - 1U;
+    }
+    trim->coverage_mask |= (1UL << bin);
+    trim->window_count++;
+    trim->accepted_samples++;
+
+    if ((trim->window_count < ENCODER_RUNTIME_TRIM_MIN_WINDOW_SAMPLES) ||
+        (trim->coverage_mask != ENCODER_RUNTIME_TRIM_FULL_COVERAGE_MASK))
+    {
+        trim->active = trim->update_count > 0U;
+        trim->freeze_reason = trim->active ? ENCODER_RUNTIME_TRIM_FREEZE_NONE :
+                                             ENCODER_RUNTIME_TRIM_FREEZE_COVERAGE;
+        return;
+    }
+
+    a1_sin_center = 0.5f * ((float)trim->a1_sin_min + (float)trim->a1_sin_max);
+    a1_cos_center = 0.5f * ((float)trim->a1_cos_min + (float)trim->a1_cos_max);
+    a2_sin_center = 0.5f * ((float)trim->a2_sin_min + (float)trim->a2_sin_max);
+    a2_cos_center = 0.5f * ((float)trim->a2_cos_min + (float)trim->a2_cos_max);
+
+    trim->a1_center_sin_delta =
+        update_trim_delta(trim->a1_center_sin_delta,
+                          a1_sin_center - factory->a1.center_sin);
+    trim->a1_center_cos_delta =
+        update_trim_delta(trim->a1_center_cos_delta,
+                          a1_cos_center - factory->a1.center_cos);
+    trim->a2_center_sin_delta =
+        update_trim_delta(trim->a2_center_sin_delta,
+                          a2_sin_center - factory->a2.center_sin);
+    trim->a2_center_cos_delta =
+        update_trim_delta(trim->a2_center_cos_delta,
+                          a2_cos_center - factory->a2.center_cos);
+
+    trim->active = true;
+    trim->freeze_reason = ENCODER_RUNTIME_TRIM_FREEZE_NONE;
+    trim->update_count++;
+    reset_trim_window(trim);
+}
+
+void encoder_process(encoder_state_t *state,
+                     const encoder_calibration_t *calibration,
+                     const encoder_raw_sample_t *sample,
+                     encoder_result_t *result,
+                     encoder_diag_t *diag)
 {
     float phase_a1 = 0.0f;
     float phase_a2 = 0.0f;
     float mag_a1 = 0.0f;
     float mag_a2 = 0.0f;
-    float zero_a1 = 0.0f;
-    float zero_a2 = 0.0f;
     encoder_solver_candidate_t best;
     uint32_t status = ENCODER_STATUS_OK;
-    bool have_calibration = false;
-    bool publish_angle = false;
 
     if (result == NULL)
     {
@@ -945,10 +967,12 @@ void encoder_process_with_diag(encoder_state_t *state,
         return;
     }
 
-    have_calibration = ((calibration != NULL) && calibration->valid);
-    if (!have_calibration)
+    if ((calibration == NULL) || !calibration->valid)
     {
-        status |= ENCODER_STATUS_NOT_CALIBRATED;
+        status |= ENCODER_STATUS_NOT_CALIBRATED | ENCODER_STATUS_HOLD_LAST;
+        hold_last_angle(state, result);
+        result->status = status;
+        return;
     }
 
     if (adc_is_rail(sample->a1_sin_raw) || adc_is_rail(sample->a1_cos_raw) ||
@@ -957,64 +981,26 @@ void encoder_process_with_diag(encoder_state_t *state,
         status |= ENCODER_STATUS_ADC_RAIL;
     }
 
-    if (have_calibration)
+    if (!transform_track(&calibration->a1, sample->a1_sin_raw, sample->a1_cos_raw,
+                         &phase_a1, &mag_a1))
     {
-        zero_a1 = calibration->phase_a1_zero_deg;
-        zero_a2 = calibration->phase_a2_zero_deg;
-
-        if (!transform_track(&calibration->a1,
-                             sample->a1_sin_raw,
-                             sample->a1_cos_raw,
-                             &phase_a1,
-                             &mag_a1))
-        {
-            status |= a1_weak_status() | ENCODER_STATUS_CAL_FAILED;
-        }
-
-        if (!transform_track(&calibration->a2,
-                             sample->a2_sin_raw,
-                             sample->a2_cos_raw,
-                             &phase_a2,
-                             &mag_a2))
-        {
-            status |= a2_weak_status() | ENCODER_STATUS_CAL_FAILED;
-        }
-
-        if (mag_a1 < ENCODER_MIN_NORMALIZED_MAG)
-        {
-            status |= a1_weak_status();
-        }
-
-        if (mag_a2 < ENCODER_MIN_NORMALIZED_MAG)
-        {
-            status |= a2_weak_status();
-        }
+        status |= ENCODER_STATUS_TRACK16_WEAK | ENCODER_STATUS_CAL_FAILED;
     }
-    else
+
+    if (!transform_track(&calibration->a2, sample->a2_sin_raw, sample->a2_cos_raw,
+                         &phase_a2, &mag_a2))
     {
-        if (state != NULL)
-        {
-            update_rough_track(&state->rough_a1, sample->a1_sin_raw, sample->a1_cos_raw);
-            update_rough_track(&state->rough_a2, sample->a2_sin_raw, sample->a2_cos_raw);
-        }
+        status |= ENCODER_STATUS_TRACK15_WEAK | ENCODER_STATUS_CAL_FAILED;
+    }
 
-        if (!transform_rough_track((state != NULL) ? &state->rough_a1 : NULL,
-                                   sample->a1_sin_raw,
-                                   sample->a1_cos_raw,
-                                   &phase_a1,
-                                   &mag_a1))
-        {
-            status |= a1_weak_status() | ENCODER_STATUS_CAL_FAILED;
-        }
+    if (mag_a1 < ENCODER_MIN_NORMALIZED_MAG)
+    {
+        status |= ENCODER_STATUS_TRACK16_WEAK;
+    }
 
-        if (!transform_rough_track((state != NULL) ? &state->rough_a2 : NULL,
-                                   sample->a2_sin_raw,
-                                   sample->a2_cos_raw,
-                                   &phase_a2,
-                                   &mag_a2))
-        {
-            status |= a2_weak_status() | ENCODER_STATUS_CAL_FAILED;
-        }
+    if (mag_a2 < ENCODER_MIN_NORMALIZED_MAG)
+    {
+        status |= ENCODER_STATUS_TRACK15_WEAK;
     }
 
     if (diag != NULL)
@@ -1023,32 +1009,22 @@ void encoder_process_with_diag(encoder_state_t *state,
         diag->phase_a2_deg = phase_a2;
     }
 
-    if ((status & ~(ENCODER_STATUS_NOT_CALIBRATED)) == ENCODER_STATUS_OK)
+    if (status == ENCODER_STATUS_OK)
     {
-        if (solve_best_vernier(phase_a1, phase_a2, zero_a1, zero_a2, &best))
+        if (solve_vernier(phase_a1, phase_a2,
+                          calibration->phase_a1_zero_deg, calibration->phase_a2_zero_deg,
+                          &best))
         {
             stabilize_vernier_branch(state, &best);
 
-            if (best.mapping == ENCODER_MAPPING_A1_16_A2_15)
-            {
-                result->mag16 = mag_a1;
-                result->mag15 = mag_a2;
-            }
-            else
-            {
-                result->mag16 = mag_a2;
-                result->mag15 = mag_a1;
-            }
-
+            result->mag16 = mag_a1;
+            result->mag15 = mag_a2;
             result->phase16_deg = best.p16;
             result->phase15_deg = best.p15;
             result->coarse_deg = best.coarse;
 
             if (diag != NULL)
             {
-                diag->mapping = best.mapping;
-                diag->dir16 = best.dir16;
-                diag->dir15 = best.dir15;
                 diag->angle_deg = best.angle;
                 diag->coarse_angle_deg = best.coarse;
                 diag->phase16_error_deg = best.phase16_error;
@@ -1066,12 +1042,9 @@ void encoder_process_with_diag(encoder_state_t *state,
         }
     }
 
-    publish_angle = (((status & ~(ENCODER_STATUS_NOT_CALIBRATED)) == ENCODER_STATUS_OK) &&
-                     (have_calibration || (ENCODER_ROUGH_ANGLE_ENABLE != 0U)));
-
-    if (publish_angle)
+    if (status == ENCODER_STATUS_OK)
     {
-        const float raw_angle_deg = (diag != NULL) ? diag->angle_deg : best.angle;
+        const float raw_angle_deg = best.angle;
         result->angle_deg_raw = raw_angle_deg;
         result->angle_deg_filtered = filter_published_angle(state, raw_angle_deg);
         result->angle_deg = result->angle_deg_filtered;
@@ -1092,12 +1065,4 @@ void encoder_process_with_diag(encoder_state_t *state,
     }
 
     result->status = status;
-}
-
-void encoder_process(encoder_state_t *state,
-                        const encoder_calibration_t *calibration,
-                        const encoder_raw_sample_t *sample,
-                        encoder_result_t *result)
-{
-    encoder_process_with_diag(state, calibration, sample, result, NULL);
 }

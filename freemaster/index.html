@@ -325,28 +325,17 @@
             <div class="kv-row"><span class="kv-label">mag16</span><span class="kv-value" id="mag16-value">--</span></div>
             <div class="kv-row"><span class="kv-label">mag15</span><span class="kv-value" id="mag15-value">--</span></div>
             <div class="kv-row"><span class="kv-label">status</span><span class="kv-value" id="enc-status-value">--</span></div>
+            <div class="kv-row"><span class="kv-label">cal source</span><span class="kv-value" id="cal-source-value">--</span></div>
+            <div class="kv-row"><span class="kv-label">storage crc</span><span class="kv-value" id="storage-crc-value">--</span></div>
             <div class="kv-row"><span class="kv-label">sample rate</span><span class="kv-value" id="sample-rate-value">--</span></div>
             <div class="kv-row"><span class="kv-label">samples</span><span class="kv-value" id="sample-count-value">--</span></div>
             <div class="kv-row"><span class="kv-label">overruns</span><span class="kv-value" id="overrun-count-value">--</span></div>
+            <div class="kv-row"><span class="kv-label">runtime trim</span><span class="kv-value" id="trim-state-value">--</span></div>
+            <div class="kv-row"><span class="kv-label">trim reason</span><span class="kv-value" id="trim-reason-value">--</span></div>
+            <div class="kv-row"><span class="kv-label">trim A1 dS / dC</span><span class="kv-value" id="trim-a1-value">--</span></div>
+            <div class="kv-row"><span class="kv-label">trim A2 dS / dC</span><span class="kv-value" id="trim-a2-value">--</span></div>
             <div id="enc-status-flags" style="margin-top:8px; font-size:0.85em; color:var(--warn); min-height:1em"></div>
             <div class="error-message" id="track-error"></div>
-        </div>
-
-        <!-- Online Calibration -->
-        <div class="data-card">
-            <div class="card-title">Online Calibration</div>
-            <div>
-                <button id="calib-button" class="action-btn">Start Calibration</button>
-                <span id="calib-status" class="status-badge status-idle">Idle</span>
-            </div>
-            <div class="progress-container">
-                <div class="progress-bar"><div id="calib-progress-fill" class="progress-fill"></div></div>
-                <div id="calib-progress-text" class="progress-text">0%</div>
-            </div>
-            <div style="margin-top:10px; font-size:0.85em; color:var(--accent-3)">
-                Rotate the rotor through at least one full revolution during the ~8 s calibration window.
-            </div>
-            <div class="error-message" id="calib-error"></div>
         </div>
 
         <!-- Encoder Control -->
@@ -359,6 +348,14 @@
             <div style="margin-top:14px">
                 <button id="reset-button" class="action-btn">MCU Reset</button>
             </div>
+            <div style="margin-top:18px">
+                <button id="factory-cal-button" class="action-btn">Factory Calibration</button>
+                <span id="factory-cal-status" class="status-badge status-idle">Idle</span>
+            </div>
+            <div class="progress-container">
+                <div class="progress-bar"><div class="progress-fill" id="factory-cal-progress-fill"></div></div>
+                <div class="progress-text" id="factory-cal-progress-text">0%</div>
+            </div>
             <div class="error-message" id="zero-error"></div>
         </div>
 
@@ -368,7 +365,6 @@
             <div class="kv-row"><span class="kv-label">center_sin</span><span class="kv-value" id="a1-cs">--</span></div>
             <div class="kv-row"><span class="kv-label">center_cos</span><span class="kv-value" id="a1-cc">--</span></div>
             <div class="kv-row"><span class="kv-label">T[0,0]</span><span class="kv-value" id="a1-t00">--</span></div>
-            <div class="kv-row"><span class="kv-label">T[0,1]</span><span class="kv-value" id="a1-t01">--</span></div>
             <div class="kv-row"><span class="kv-label">T[1,0]</span><span class="kv-value" id="a1-t10">--</span></div>
             <div class="kv-row"><span class="kv-label">T[1,1]</span><span class="kv-value" id="a1-t11">--</span></div>
             <div class="kv-row"><span class="kv-label">zero phase</span><span class="kv-value" id="a1-zero">--°</span></div>
@@ -381,7 +377,6 @@
             <div class="kv-row"><span class="kv-label">center_sin</span><span class="kv-value" id="a2-cs">--</span></div>
             <div class="kv-row"><span class="kv-label">center_cos</span><span class="kv-value" id="a2-cc">--</span></div>
             <div class="kv-row"><span class="kv-label">T[0,0]</span><span class="kv-value" id="a2-t00">--</span></div>
-            <div class="kv-row"><span class="kv-label">T[0,1]</span><span class="kv-value" id="a2-t01">--</span></div>
             <div class="kv-row"><span class="kv-label">T[1,0]</span><span class="kv-value" id="a2-t10">--</span></div>
             <div class="kv-row"><span class="kv-label">T[1,1]</span><span class="kv-value" id="a2-t11">--</span></div>
             <div class="kv-row"><span class="kv-label">zero phase</span><span class="kv-value" id="a2-zero">--°</span></div>
@@ -408,17 +403,14 @@
             { bit: 1 << 4, name: 'TRACK_MISMATCH' },
             { bit: 1 << 5, name: 'CAL_FAILED'     },
             { bit: 1 << 6, name: 'HOLD_LAST'      },
+            { bit: 1 << 7, name: 'CAL_STORAGE_INVALID' },
+            { bit: 1 << 8, name: 'FACTORY_CAL_REQUIRED' },
         ];
 
         let pcm = null;
         let isConnected = false;
         let updateInterval = null;
         let currentAngle = 0;
-
-        /* Calibration UI state machine — guards against stale fm_cal_done from a
-         * previous calibration showing "Done" the instant the user clicks again.
-         * Cleared once we observe state == RUNNING or FAILED from firmware. */
-        let calibStartPendingUntil = 0;
 
         function initializePCM() {
             try {
@@ -492,6 +484,38 @@
             return STATUS_BITS.filter(b => v & b.bit).map(b => b.name).join(' | ');
         }
 
+        function calSourceName(value) {
+            switch (Number(value) >>> 0) {
+                case 0: return 'DEFAULT';
+                case 1: return 'NVM';
+                case 2: return 'FACTORY_PENDING';
+                case 3: return 'INVALID';
+                default: return 'UNKNOWN';
+            }
+        }
+
+        function trimReasonName(value) {
+            switch (Number(value) >>> 0) {
+                case 0: return 'NONE';
+                case 1: return 'DISABLED';
+                case 2: return 'NOT_CALIBRATED';
+                case 3: return 'STATUS';
+                case 4: return 'COVERAGE';
+                case 5: return 'MAGNITUDE';
+                default: return 'UNKNOWN';
+            }
+        }
+
+        function factoryCalStateName(value) {
+            switch (Number(value) >>> 0) {
+                case 0: return 'Idle';
+                case 1: return 'Running';
+                case 2: return 'Done';
+                case 3: return 'Failed';
+                default: return 'Unknown';
+            }
+        }
+
         async function updateDisplay() {
             if (!isConnected) return;
 
@@ -525,6 +549,13 @@
                 const rateHz   = await readVariable('encoder_sample_rate_hz', 'uint',  4);
                 const samples  = await readVariable('adc_sample_count',       'uint',  4);
                 const overruns = await readVariable('adc_overrun_count',      'uint',  4);
+                const calSource = await readVariable('encoder_calibration_source', 'uint', 4);
+                const storageOk = await readVariable('encoder_storage_crc_ok', 'uint', 4);
+                const trimEnabled = await readVariable('encoder_runtime_trim_enabled', 'uint', 1);
+                const trimActive = await readVariable('encoder_runtime_trim_active', 'uint', 1);
+                const trimReason = await readVariable('encoder_runtime_trim_freeze_reason', 'uint', 4);
+                const trimBlob = await pcm.ReadFloatArray('encoder_runtime_trim_delta', 4);
+                const trim = trimBlob.data || [0, 0, 0, 0];
 
                 document.getElementById('coarse-value').textContent   = coarse.toFixed(3) + '°';
                 document.getElementById('phase16-value').textContent  = phase16.toFixed(3) + '°';
@@ -532,9 +563,19 @@
                 document.getElementById('mag16-value').textContent    = mag16.toFixed(3);
                 document.getElementById('mag15-value').textContent    = mag15.toFixed(3);
                 document.getElementById('enc-status-value').textContent = formatHex32(status);
+                document.getElementById('cal-source-value').textContent = calSourceName(calSource);
+                document.getElementById('storage-crc-value').textContent = Number(storageOk) === 1 ? 'OK' : 'Invalid';
                 document.getElementById('sample-rate-value').textContent = rateHz + ' Hz';
                 document.getElementById('sample-count-value').textContent = samples;
                 document.getElementById('overrun-count-value').textContent = overruns;
+                document.getElementById('trim-state-value').textContent =
+                    (Number(trimEnabled) === 1 ? 'Enabled' : 'Disabled') + ' / ' +
+                    (Number(trimActive) === 1 ? 'Active' : 'Idle');
+                document.getElementById('trim-reason-value').textContent = trimReasonName(trimReason);
+                document.getElementById('trim-a1-value').textContent =
+                    trim[0].toFixed(2) + ' / ' + trim[1].toFixed(2);
+                document.getElementById('trim-a2-value').textContent =
+                    trim[2].toFixed(2) + ' / ' + trim[3].toFixed(2);
 
                 const flagsText = decodeStatusFlags(status);
                 document.getElementById('enc-status-flags').textContent = flagsText;
@@ -556,26 +597,34 @@
                 document.getElementById('track-error').textContent = 'Read failed: ' + error.message;
             }
 
-            /* === Calibration status === */
+            /* === Factory calibration service state === */
             try {
-                const calDone   = await readVariable('fm_cal_done',     'uint', 1);
-                const calProg   = await readVariable('fm_cal_progress', 'uint', 2);
-                const calState  = await readVariable('fm_cal_state',    'uint', 1);
-                const calStatus = await readVariable('fm_cal_status',   'uint', 4);
-                updateCalibrationUI(calDone, calProg, calState, calStatus);
+                const state = await readVariable('fm_factory_cal_state', 'uint', 1);
+                const progress = await readVariable('fm_factory_cal_progress', 'uint', 1);
+                const status = await readVariable('fm_factory_cal_status', 'uint', 4);
+                const tag = document.getElementById('factory-cal-status');
+
+                tag.textContent = factoryCalStateName(state);
+                tag.className = 'status-badge ' +
+                    (Number(state) === 1 ? 'status-running' :
+                     Number(state) === 2 ? 'status-done' :
+                     Number(state) === 3 ? 'status-fail' : 'status-idle');
+                document.getElementById('factory-cal-progress-fill').style.width = Number(progress) + '%';
+                document.getElementById('factory-cal-progress-text').textContent =
+                    Number(progress) + '% / ' + formatHex32(status);
             } catch (error) {
-                document.getElementById('calib-error').textContent = 'Read failed: ' + error.message;
+                document.getElementById('zero-error').textContent = 'Factory cal read failed: ' + error.message;
             }
 
             /* === Per-track calibration === */
             try {
-                const blob = await pcm.ReadFloatArray('encoder_cal_flat', 14);
+                const blob = await pcm.ReadFloatArray('encoder_cal_flat', 12);
                 const a = blob.data || [];
-                if (a.length < 14) throw new Error('short read (' + a.length + '/14)');
+                if (a.length < 12) throw new Error('short read (' + a.length + '/12)');
                 fillTrackCal('a1', a, 0);
-                fillTrackCal('a2', a, 6);
-                document.getElementById('a1-zero').textContent = a[12].toFixed(3) + '°';
-                document.getElementById('a2-zero').textContent = a[13].toFixed(3) + '°';
+                fillTrackCal('a2', a, 5);
+                document.getElementById('a1-zero').textContent = a[10].toFixed(3) + '°';
+                document.getElementById('a2-zero').textContent = a[11].toFixed(3) + '°';
                 document.getElementById('a1-error').textContent = '';
                 document.getElementById('a2-error').textContent = '';
             } catch (error) {
@@ -591,59 +640,8 @@
             document.getElementById(idPrefix + '-cs').textContent = arr[base + 0].toFixed(3);
             document.getElementById(idPrefix + '-cc').textContent = arr[base + 1].toFixed(3);
             document.getElementById(idPrefix + '-t00').textContent = arr[base + 2].toFixed(6);
-            document.getElementById(idPrefix + '-t01').textContent = arr[base + 3].toFixed(6);
-            document.getElementById(idPrefix + '-t10').textContent = arr[base + 4].toFixed(6);
-            document.getElementById(idPrefix + '-t11').textContent = arr[base + 5].toFixed(6);
-        }
-
-        function updateCalibrationUI(done, progress, state, calStatus) {
-            const btn  = document.getElementById('calib-button');
-            const tag  = document.getElementById('calib-status');
-            const fill = document.getElementById('calib-progress-fill');
-            const text = document.getElementById('calib-progress-text');
-            const err  = document.getElementById('calib-error');
-
-            const p = Math.max(0, Math.min(100, Number(progress) || 0));
-            const s = Number(state) || 0;
-            fill.style.width = p + '%';
-            text.textContent = p + '%';
-
-            /* Clear the pending guard once firmware visibly transitions to RUNNING/FAILED. */
-            if (s === 1 || s === 3) calibStartPendingUntil = 0;
-
-            /* During the start grace window, force "Starting" — protects against the
-             * race where firmware hasn't cleared the previous fm_cal_done yet. */
-            if (Date.now() < calibStartPendingUntil && s !== 1 && s !== 3) {
-                tag.textContent = 'Starting';
-                tag.className = 'status-badge status-running';
-                btn.disabled = true;
-                err.textContent = '';
-                return;
-            }
-
-            if (s === 1) {
-                tag.textContent = 'Calibrating';
-                tag.className = 'status-badge status-running';
-                btn.disabled = true;
-                err.textContent = '';
-            } else if (s === 2) {
-                tag.textContent = 'Done';
-                tag.className = 'status-badge status-done';
-                btn.disabled = false;
-                err.textContent = '';
-            } else if (s === 3) {
-                tag.textContent = 'Failed';
-                tag.className = 'status-badge status-fail';
-                btn.disabled = false;
-                const flags = decodeStatusFlags(calStatus);
-                err.textContent = 'Status: ' + formatHex32(calStatus)
-                    + (flags ? '  (' + flags + ')' : '');
-            } else {
-                tag.textContent = 'Idle';
-                tag.className = 'status-badge status-idle';
-                btn.disabled = false;
-                err.textContent = '';
-            }
+            document.getElementById(idPrefix + '-t10').textContent = arr[base + 3].toFixed(6);
+            document.getElementById(idPrefix + '-t11').textContent = arr[base + 4].toFixed(6);
         }
 
         function startDataUpdate() {
@@ -656,31 +654,6 @@
             if (updateInterval) {
                 clearInterval(updateInterval);
                 updateInterval = null;
-            }
-        }
-
-        async function startCalibration() {
-            const btn  = document.getElementById('calib-button');
-            const tag  = document.getElementById('calib-status');
-            const fill = document.getElementById('calib-progress-fill');
-            const text = document.getElementById('calib-progress-text');
-            try {
-                if (!pcm || !isConnected) throw new Error('Not connected');
-                /* Hold the UI in "Starting" for up to 1.5 s so a stale fm_cal_done=1
-                 * from a prior run can't flash "Done" before firmware reacts. */
-                calibStartPendingUntil = Date.now() + 1500;
-                btn.disabled = true;
-                tag.textContent = 'Starting';
-                tag.className = 'status-badge status-running';
-                fill.style.width = '0%';
-                text.textContent = '0%';
-                await pcm.WriteUIntVariable('fm_cal_enable', 1, 1);
-            } catch (err) {
-                calibStartPendingUntil = 0;
-                document.getElementById('calib-error').textContent = 'Start failed: ' + err.message;
-                btn.disabled = false;
-                tag.textContent = 'Idle';
-                tag.className = 'status-badge status-idle';
             }
         }
 
@@ -717,11 +690,24 @@
             }
         }
 
+        async function factoryCal() {
+            const btn = document.getElementById('factory-cal-button');
+            try {
+                if (!pcm || !isConnected) throw new Error('Not connected');
+                btn.disabled = true;
+                await pcm.WriteUIntVariable('fm_factory_cal_ctrl', 1, 1);
+            } catch (err) {
+                document.getElementById('zero-error').textContent = 'Factory calibration failed: ' + err.message;
+            } finally {
+                setTimeout(() => { btn.disabled = false; }, 1000);
+            }
+        }
+
         document.addEventListener('DOMContentLoaded', function() {
             initializePCM();
-            document.getElementById('calib-button').addEventListener('click', startCalibration);
             document.getElementById('zero-here-button').addEventListener('click', zeroHere);
             document.getElementById('reset-button').addEventListener('click', mcuReset);
+            document.getElementById('factory-cal-button').addEventListener('click', factoryCal);
         });
 
         window.addEventListener('beforeunload', function() {
