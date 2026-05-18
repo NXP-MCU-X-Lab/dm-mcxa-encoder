@@ -187,13 +187,28 @@ static void capture_current_zero_fm(void)
 
 static void update_encoder_result(void)
 {
+    adc_sample_result_t next_adc_result;
     v2_encoder_raw_sample_t encoder_sample;
+    v2_encoder_result_t next_v2_result;
+    v2_encoder_diag_t next_v2_diag;
+    uint32_t irq_mask;
 
-    adc_result = adc_read();
-    encoder_sample = adc_to_encoder_sample(&adc_result);
-    v2_encoder_process_with_diag(&s_v2_state, &s_v2_calibration, &encoder_sample, &v2_result, &v2_diag);
+    next_adc_result = adc_read();
+    encoder_sample = adc_to_encoder_sample(&next_adc_result);
+    v2_encoder_process_with_diag(&s_v2_state,
+                                 &s_v2_calibration,
+                                 &encoder_sample,
+                                 &next_v2_result,
+                                 &next_v2_diag);
+
+    irq_mask = DisableGlobalIRQ();
+    adc_result = next_adc_result;
+    v2_result = next_v2_result;
+    v2_diag = next_v2_diag;
     fm_encoder_valid = s_v2_calibration.valid ? 1U : 0U;
-    fm_encoder_status = v2_result.status;
+    fm_encoder_status = next_v2_result.status;
+    EnableGlobalIRQ(irq_mask);
+
     refresh_v2_cal_flat();
 }
 
@@ -251,11 +266,13 @@ int main(void)
     Hardware_Init();
     adc_init();
 
-    v2_encoder_calibration_set_defaults(&s_v2_calibration);
+    v2_encoder_calibration_set_board_defaults(&s_v2_calibration);
     v2_encoder_state_init(&s_v2_state);
     refresh_v2_cal_flat();
 
     init_freemaster();
+    fm_encoder_valid = s_v2_calibration.valid ? 1U : 0U;
+    fm_encoder_status = V2_ENCODER_STATUS_OK;
     run_freemaster_loop();
 }
 

@@ -14,6 +14,25 @@
 #define V2_ENCODER_DEFAULT_RAW_CENTER (32768.0f)
 #define V2_ENCODER_DEFAULT_RAW_AMPLITUDE (16384.0f)
 #define V2_ENCODER_MIN_ROUGH_AMPLITUDE (64.0f)
+#define V2_ENCODER_FINE_BRANCH_STEP_DEG (360.0f / (float)V2_ENCODER_TRACK16_CYCLES)
+#define V2_ENCODER_BRANCH_SLIP_STEP_DEG (0.5f * V2_ENCODER_FINE_BRANCH_STEP_DEG)
+#define V2_ENCODER_BRANCH_ERROR_MARGIN_DEG (5.0f)
+
+#define V2_ENCODER_BOARD_A1_CENTER_SIN (12156.5f)
+#define V2_ENCODER_BOARD_A1_CENTER_COS (22284.5f)
+#define V2_ENCODER_BOARD_A1_T00        (0.000151f)
+#define V2_ENCODER_BOARD_A1_T01        (0.0f)
+#define V2_ENCODER_BOARD_A1_T10        (0.0f)
+#define V2_ENCODER_BOARD_A1_T11        (0.000079f)
+#define V2_ENCODER_BOARD_A1_ZERO_DEG   (205.701f)
+
+#define V2_ENCODER_BOARD_A2_CENTER_SIN (21796.5f)
+#define V2_ENCODER_BOARD_A2_CENTER_COS (21121.5f)
+#define V2_ENCODER_BOARD_A2_T00        (0.000091f)
+#define V2_ENCODER_BOARD_A2_T01        (0.0f)
+#define V2_ENCODER_BOARD_A2_T10        (0.0f)
+#define V2_ENCODER_BOARD_A2_T11        (0.000091f)
+#define V2_ENCODER_BOARD_A2_ZERO_DEG   (118.153f)
 
 typedef struct _v2_encoder_solver_candidate
 {
@@ -98,6 +117,27 @@ static void set_identity_track_cal(v2_encoder_track_calibration_t *track)
     track->transform[1][1] = 1.0f / V2_ENCODER_DEFAULT_RAW_AMPLITUDE;
 }
 
+static void set_track_cal(v2_encoder_track_calibration_t *track,
+                          float center_sin,
+                          float center_cos,
+                          float t00,
+                          float t01,
+                          float t10,
+                          float t11)
+{
+    if (track == NULL)
+    {
+        return;
+    }
+
+    track->center_sin = center_sin;
+    track->center_cos = center_cos;
+    track->transform[0][0] = t00;
+    track->transform[0][1] = t01;
+    track->transform[1][0] = t10;
+    track->transform[1][1] = t11;
+}
+
 static void init_track_stats(v2_encoder_track_cal_stats_t *stats)
 {
     stats->count = 0U;
@@ -111,6 +151,15 @@ static void init_track_stats(v2_encoder_track_cal_stats_t *stats)
     stats->sum_sin2 = 0.0;
     stats->sum_cos2 = 0.0;
     stats->sum_sincos = 0.0;
+    stats->sum_sin3 = 0.0;
+    stats->sum_cos3 = 0.0;
+    stats->sum_sin2cos = 0.0;
+    stats->sum_sincos2 = 0.0;
+    stats->sum_sin4 = 0.0;
+    stats->sum_cos4 = 0.0;
+    stats->sum_sin3cos = 0.0;
+    stats->sum_sincos3 = 0.0;
+    stats->sum_sin2cos2 = 0.0;
 }
 
 static void init_rough_track(v2_encoder_rough_track_state_t *track)
@@ -163,6 +212,12 @@ static void update_rough_track(v2_encoder_rough_track_state_t *track, uint16_t s
 
 static void accumulate_track_stats(v2_encoder_track_cal_stats_t *stats, uint16_t sin_raw, uint16_t cos_raw)
 {
+    const double sin_value = (double)sin_raw;
+    const double cos_value = (double)cos_raw;
+    const double sin2 = sin_value * sin_value;
+    const double cos2 = cos_value * cos_value;
+    const double sincos = sin_value * cos_value;
+
     if (sin_raw < stats->min_sin)
     {
         stats->min_sin = sin_raw;
@@ -189,11 +244,94 @@ static void accumulate_track_stats(v2_encoder_track_cal_stats_t *stats, uint16_t
         stats->rail_count++;
     }
 
-    stats->sum_sin += (double)sin_raw;
-    stats->sum_cos += (double)cos_raw;
-    stats->sum_sin2 += ((double)sin_raw * (double)sin_raw);
-    stats->sum_cos2 += ((double)cos_raw * (double)cos_raw);
-    stats->sum_sincos += ((double)sin_raw * (double)cos_raw);
+    stats->sum_sin += sin_value;
+    stats->sum_cos += cos_value;
+    stats->sum_sin2 += sin2;
+    stats->sum_cos2 += cos2;
+    stats->sum_sincos += sincos;
+    stats->sum_sin3 += sin2 * sin_value;
+    stats->sum_cos3 += cos2 * cos_value;
+    stats->sum_sin2cos += sin2 * cos_value;
+    stats->sum_sincos2 += sin_value * cos2;
+    stats->sum_sin4 += sin2 * sin2;
+    stats->sum_cos4 += cos2 * cos2;
+    stats->sum_sin3cos += sin2 * sincos;
+    stats->sum_sincos3 += sincos * cos2;
+    stats->sum_sin2cos2 += sin2 * cos2;
+}
+
+static bool solve_3x3(double matrix[3][3], double vector[3], double result[3])
+{
+    double aug[3][4];
+    uint32_t row;
+    uint32_t col;
+
+    for (row = 0U; row < 3U; row++)
+    {
+        for (col = 0U; col < 3U; col++)
+        {
+            aug[row][col] = matrix[row][col];
+        }
+        aug[row][3] = vector[row];
+    }
+
+    for (col = 0U; col < 3U; col++)
+    {
+        uint32_t pivot = col;
+        double pivot_abs = fabs(aug[col][col]);
+
+        for (row = col + 1U; row < 3U; row++)
+        {
+            const double value_abs = fabs(aug[row][col]);
+            if (value_abs > pivot_abs)
+            {
+                pivot = row;
+                pivot_abs = value_abs;
+            }
+        }
+
+        if (pivot_abs < 1.0e-30)
+        {
+            return false;
+        }
+
+        if (pivot != col)
+        {
+            for (row = col; row < 4U; row++)
+            {
+                const double tmp = aug[col][row];
+                aug[col][row] = aug[pivot][row];
+                aug[pivot][row] = tmp;
+            }
+        }
+
+        {
+            const double div = aug[col][col];
+            for (row = col; row < 4U; row++)
+            {
+                aug[col][row] /= div;
+            }
+        }
+
+        for (row = 0U; row < 3U; row++)
+        {
+            if (row != col)
+            {
+                const double factor = aug[row][col];
+                uint32_t k;
+                for (k = col; k < 4U; k++)
+                {
+                    aug[row][k] -= factor * aug[col][k];
+                }
+            }
+        }
+    }
+
+    result[0] = aug[0][3];
+    result[1] = aug[1][3];
+    result[2] = aug[2][3];
+
+    return true;
 }
 
 static bool build_track_calibration(const v2_encoder_track_cal_stats_t *stats,
@@ -223,14 +361,76 @@ static bool build_track_calibration(const v2_encoder_track_cal_stats_t *stats,
         return false;
     }
 
-    track->center_sin = 0.5f * ((float)stats->min_sin + (float)stats->max_sin);
-    track->center_cos = 0.5f * ((float)stats->min_cos + (float)stats->max_cos);
-    track->transform[0][0] = 1.0f / range_sin;
-    track->transform[0][1] = 0.0f;
-    track->transform[1][0] = 0.0f;
-    track->transform[1][1] = 1.0f / range_cos;
+    /* Fit the centered ellipse equation:
+     *   a*x^2 + b*x*y + c*y^2 = 1
+     * using least squares. Unlike covariance whitening, this depends on the
+     * ellipse equation itself, not on how long the rotor stayed at each angle. */
+    const float center_sin = 0.5f * ((float)stats->min_sin + (float)stats->max_sin);
+    const float center_cos = 0.5f * ((float)stats->min_cos + (float)stats->max_cos);
+    const double n = (double)stats->count;
+    const double cx = (double)center_sin;
+    const double cy = (double)center_cos;
+    const double cx2 = cx * cx;
+    const double cy2 = cy * cy;
+    const double cx3 = cx2 * cx;
+    const double cy3 = cy2 * cy;
+    const double cx4 = cx2 * cx2;
+    const double cy4 = cy2 * cy2;
 
-    if (!is_finite_float(track->transform[0][0]) || !is_finite_float(track->transform[1][1]))
+    const double sx2 = stats->sum_sin2 - (2.0 * cx * stats->sum_sin) + (n * cx2);
+    const double sy2 = stats->sum_cos2 - (2.0 * cy * stats->sum_cos) + (n * cy2);
+    const double sxy = stats->sum_sincos - (cx * stats->sum_cos) - (cy * stats->sum_sin) + (n * cx * cy);
+    const double sx4 = stats->sum_sin4 - (4.0 * cx * stats->sum_sin3) +
+                       (6.0 * cx2 * stats->sum_sin2) - (4.0 * cx3 * stats->sum_sin) + (n * cx4);
+    const double sy4 = stats->sum_cos4 - (4.0 * cy * stats->sum_cos3) +
+                       (6.0 * cy2 * stats->sum_cos2) - (4.0 * cy3 * stats->sum_cos) + (n * cy4);
+    const double sx3y = stats->sum_sin3cos - (cy * stats->sum_sin3) -
+                        (3.0 * cx * stats->sum_sin2cos) +
+                        (3.0 * cx * cy * stats->sum_sin2) +
+                        (3.0 * cx2 * stats->sum_sincos) -
+                        (3.0 * cx2 * cy * stats->sum_sin) -
+                        (cx3 * stats->sum_cos) + (n * cx3 * cy);
+    const double sxy3 = stats->sum_sincos3 - (cx * stats->sum_cos3) -
+                        (3.0 * cy * stats->sum_sincos2) +
+                        (3.0 * cx * cy * stats->sum_cos2) +
+                        (3.0 * cy2 * stats->sum_sincos) -
+                        (3.0 * cx * cy2 * stats->sum_cos) -
+                        (cy3 * stats->sum_sin) + (n * cx * cy3);
+    const double sx2y2 = stats->sum_sin2cos2 -
+                         (2.0 * cy * stats->sum_sin2cos) +
+                         (cy2 * stats->sum_sin2) -
+                         (2.0 * cx * stats->sum_sincos2) +
+                         (4.0 * cx * cy * stats->sum_sincos) -
+                         (2.0 * cx * cy2 * stats->sum_sin) +
+                         (cx2 * stats->sum_cos2) -
+                         (2.0 * cx2 * cy * stats->sum_cos) +
+                         (n * cx2 * cy2);
+    double matrix[3][3];
+    double vector[3];
+    double conic[3];
+    double m00;
+    double m01;
+    double m11;
+    double det_m;
+    double t00_sq;
+    double t00;
+    double t10;
+    double t11;
+
+    matrix[0][0] = sx4;
+    matrix[0][1] = sx3y;
+    matrix[0][2] = sx2y2;
+    matrix[1][0] = sx3y;
+    matrix[1][1] = sx2y2;
+    matrix[1][2] = sxy3;
+    matrix[2][0] = sx2y2;
+    matrix[2][1] = sxy3;
+    matrix[2][2] = sy4;
+    vector[0] = sx2;
+    vector[1] = sxy;
+    vector[2] = sy2;
+
+    if (!solve_3x3(matrix, vector, conic))
     {
         if (status != NULL)
         {
@@ -238,6 +438,51 @@ static bool build_track_calibration(const v2_encoder_track_cal_stats_t *stats,
         }
         return false;
     }
+
+    m00 = conic[0];
+    m01 = 0.5 * conic[1];
+    m11 = conic[2];
+    det_m = (m00 * m11) - (m01 * m01);
+
+    if ((m00 <= 0.0) || (m11 <= 0.0) || (det_m <= 0.0))
+    {
+        if (status != NULL)
+        {
+            *status |= V2_ENCODER_STATUS_CAL_FAILED;
+        }
+        return false;
+    }
+
+    t11 = sqrt(m11);
+    t10 = m01 / t11;
+    t00_sq = m00 - (t10 * t10);
+
+    if (t00_sq <= 0.0)
+    {
+        if (status != NULL)
+        {
+            *status |= V2_ENCODER_STATUS_CAL_FAILED;
+        }
+        return false;
+    }
+
+    t00 = sqrt(t00_sq);
+
+    if (!is_finite_float((float)t00) || !is_finite_float((float)t10) || !is_finite_float((float)t11))
+    {
+        if (status != NULL)
+        {
+            *status |= V2_ENCODER_STATUS_CAL_FAILED;
+        }
+        return false;
+    }
+
+    track->center_sin = center_sin;
+    track->center_cos = center_cos;
+    track->transform[0][0] = (float)t00;
+    track->transform[0][1] = 0.0f;
+    track->transform[1][0] = (float)t10;
+    track->transform[1][1] = (float)t11;
 
     return true;
 }
@@ -375,6 +620,67 @@ static uint32_t a2_weak_status(void)
                V2_ENCODER_STATUS_TRACK16_WEAK;
 }
 
+static void update_candidate_error(v2_encoder_solver_candidate_t *candidate)
+{
+    if (candidate == NULL)
+    {
+        return;
+    }
+
+    candidate->phase16_error = fabsf(signed_angle_error_deg(
+        wrap_deg(candidate->angle * (float)V2_ENCODER_TRACK16_CYCLES), candidate->p16));
+    candidate->phase15_error = fabsf(signed_angle_error_deg(
+        wrap_deg(candidate->angle * (float)V2_ENCODER_TRACK15_CYCLES), candidate->p15));
+    candidate->error = max_float(candidate->phase16_error, candidate->phase15_error);
+}
+
+static void stabilize_vernier_branch(const v2_encoder_state_t *state, v2_encoder_solver_candidate_t *candidate)
+{
+    v2_encoder_solver_candidate_t adjusted;
+    float current_step;
+    float best_distance;
+    int32_t branch;
+
+    if ((state == NULL) || !state->has_valid_angle || (candidate == NULL))
+    {
+        return;
+    }
+
+    current_step = fabsf(signed_angle_error_deg(candidate->angle, state->last_angle_deg));
+    if (current_step <= V2_ENCODER_BRANCH_SLIP_STEP_DEG)
+    {
+        return;
+    }
+
+    adjusted = *candidate;
+    best_distance = current_step;
+
+    for (branch = -8; branch <= 8; branch++)
+    {
+        v2_encoder_solver_candidate_t trial = *candidate;
+        const float trial_distance =
+            fabsf(signed_angle_error_deg(wrap_deg(candidate->angle +
+                                                  ((float)branch * V2_ENCODER_FINE_BRANCH_STEP_DEG)),
+                                         state->last_angle_deg));
+
+        if (trial_distance >= best_distance)
+        {
+            continue;
+        }
+
+        trial.angle = wrap_deg(candidate->angle + ((float)branch * V2_ENCODER_FINE_BRANCH_STEP_DEG));
+        update_candidate_error(&trial);
+        if ((trial.error <= V2_ENCODER_TRACK_PHASE_TOLERANCE_DEG) &&
+            (trial.error <= (candidate->error + V2_ENCODER_BRANCH_ERROR_MARGIN_DEG)))
+        {
+            adjusted = trial;
+            best_distance = trial_distance;
+        }
+    }
+
+    *candidate = adjusted;
+}
+
 static bool solve_vernier_variant(float phase_a1,
                                   float phase_a2,
                                   float zero_a1,
@@ -426,13 +732,7 @@ static bool solve_vernier_variant(float phase_a1,
         candidate->angle = wrap_deg(candidate->coarse + fine_delta / (float)V2_ENCODER_TRACK16_CYCLES);
     }
 
-    /* p16 error is near zero by construction (angle was reconstructed from p16).
-     * p15 error is the cross-track consistency check that drives TRACK_MISMATCH. */
-    candidate->phase16_error = fabsf(signed_angle_error_deg(
-        wrap_deg(candidate->angle * (float)V2_ENCODER_TRACK16_CYCLES), candidate->p16));
-    candidate->phase15_error = fabsf(signed_angle_error_deg(
-        wrap_deg(candidate->angle * (float)V2_ENCODER_TRACK15_CYCLES), candidate->p15));
-    candidate->error = max_float(candidate->phase16_error, candidate->phase15_error);
+    update_candidate_error(candidate);
 
     return (is_finite_float(candidate->angle) && is_finite_float(candidate->error));
 }
@@ -470,6 +770,32 @@ void v2_encoder_calibration_set_defaults(v2_encoder_calibration_t *calibration)
     calibration->phase_a1_zero_deg = 0.0f;
     calibration->phase_a2_zero_deg = 0.0f;
     calibration->valid = false;
+}
+
+void v2_encoder_calibration_set_board_defaults(v2_encoder_calibration_t *calibration)
+{
+    if (calibration == NULL)
+    {
+        return;
+    }
+
+    set_track_cal(&calibration->a1,
+                  V2_ENCODER_BOARD_A1_CENTER_SIN,
+                  V2_ENCODER_BOARD_A1_CENTER_COS,
+                  V2_ENCODER_BOARD_A1_T00,
+                  V2_ENCODER_BOARD_A1_T01,
+                  V2_ENCODER_BOARD_A1_T10,
+                  V2_ENCODER_BOARD_A1_T11);
+    set_track_cal(&calibration->a2,
+                  V2_ENCODER_BOARD_A2_CENTER_SIN,
+                  V2_ENCODER_BOARD_A2_CENTER_COS,
+                  V2_ENCODER_BOARD_A2_T00,
+                  V2_ENCODER_BOARD_A2_T01,
+                  V2_ENCODER_BOARD_A2_T10,
+                  V2_ENCODER_BOARD_A2_T11);
+    calibration->phase_a1_zero_deg = V2_ENCODER_BOARD_A1_ZERO_DEG;
+    calibration->phase_a2_zero_deg = V2_ENCODER_BOARD_A2_ZERO_DEG;
+    calibration->valid = true;
 }
 
 void v2_encoder_cal_stats_init(v2_encoder_cal_stats_t *stats)
@@ -567,12 +893,14 @@ bool v2_encoder_capture_zero(v2_encoder_calibration_t *calibration,
         local_status |= V2_ENCODER_STATUS_ADC_RAIL;
     }
 
-    if (!transform_track(&calibration->a1, sample->a1_sin_raw, sample->a1_cos_raw, &phase_a1, &mag_a1))
+    if (!transform_track(&calibration->a1, sample->a1_sin_raw, sample->a1_cos_raw,
+                         &phase_a1, &mag_a1))
     {
         local_status |= a1_weak_status() | V2_ENCODER_STATUS_CAL_FAILED;
     }
 
-    if (!transform_track(&calibration->a2, sample->a2_sin_raw, sample->a2_cos_raw, &phase_a2, &mag_a2))
+    if (!transform_track(&calibration->a2, sample->a2_sin_raw, sample->a2_cos_raw,
+                         &phase_a2, &mag_a2))
     {
         local_status |= a2_weak_status() | V2_ENCODER_STATUS_CAL_FAILED;
     }
@@ -737,6 +1065,8 @@ void v2_encoder_process_with_diag(v2_encoder_state_t *state,
     {
         if (solve_best_vernier(phase_a1, phase_a2, zero_a1, zero_a2, &best))
         {
+            stabilize_vernier_branch(state, &best);
+
             if (best.mapping == V2_ENCODER_MAPPING_A1_16_A2_15)
             {
                 result->mag16 = mag_a1;

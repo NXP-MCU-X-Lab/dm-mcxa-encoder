@@ -36,7 +36,7 @@
 #define ADC_TRIGGER_ID          0U
 
 /* Hardware Averaging for Signal Channels */
-#define ADC_HW_AVG_SIGNAL       kLPADC_HardwareAverageCount8
+#define ADC_HW_AVG_SIGNAL       kLPADC_HardwareAverageCount2
 #define ADC_SAMPLE_TIME_SIGNAL  kLPADC_SampleTimeADCK5
 #define ADC_CLK_DIV             3
 

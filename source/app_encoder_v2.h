@@ -99,6 +99,15 @@ typedef struct _v2_encoder_track_cal_stats
     double sum_sin2;
     double sum_cos2;
     double sum_sincos;
+    double sum_sin3;
+    double sum_cos3;
+    double sum_sin2cos;
+    double sum_sincos2;
+    double sum_sin4;
+    double sum_cos4;
+    double sum_sin3cos;
+    double sum_sincos3;
+    double sum_sin2cos2;
 } v2_encoder_track_cal_stats_t;
 
 typedef struct _v2_encoder_cal_stats
@@ -126,6 +135,7 @@ typedef struct _v2_encoder_state
 } v2_encoder_state_t;
 
 void v2_encoder_calibration_set_defaults(v2_encoder_calibration_t *calibration);
+void v2_encoder_calibration_set_board_defaults(v2_encoder_calibration_t *calibration);
 void v2_encoder_cal_stats_init(v2_encoder_cal_stats_t *stats);
 void v2_encoder_cal_stats_accumulate(v2_encoder_cal_stats_t *stats, const v2_encoder_raw_sample_t *sample);
 bool v2_encoder_cal_stats_build(const v2_encoder_cal_stats_t *stats,
