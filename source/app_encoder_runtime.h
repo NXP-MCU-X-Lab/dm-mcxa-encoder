@@ -3,25 +3,28 @@
 
 #include <stdint.h>
 
-#include "app_adc.h"
 #include "app_encoder.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-extern adc_sample_result_t adc_result;
 extern encoder_result_t encoder_result;
-extern encoder_diag_t encoder_diag;
-extern float encoder_cal_flat[12];
-extern float encoder_runtime_trim_delta[4];
 extern volatile uint32_t adc_sample_count;
 extern volatile uint32_t adc_overrun_count;
-extern volatile uint32_t encoder_sample_rate_hz;
 extern volatile uint32_t encoder_calibration_source;
-extern volatile uint32_t encoder_storage_crc_ok;
-extern volatile uint8_t encoder_runtime_trim_enabled;
-extern volatile uint8_t encoder_runtime_trim_active;
+
+/* Compute-time profiler outputs sampled with the Cortex-M33 DWT cycle counter.
+ *   process_cycles : last encoder_process() call duration.
+ *   isr_cycles     : last full ADC ISR callback (process + AGC + snapshot copy).
+ *   *_max          : peak observed since boot.
+ *   core_clock_hz  : CPU frequency, lets the UI convert cycles to microseconds
+ *                    and to a % CPU utilisation at the 10 kHz sample rate. */
+extern volatile uint32_t encoder_perf_process_cycles;
+extern volatile uint32_t encoder_perf_process_max;
+extern volatile uint32_t encoder_perf_isr_cycles;
+extern volatile uint32_t encoder_perf_isr_max;
+extern volatile uint32_t encoder_perf_core_clock_hz;
 
 #define ENCODER_CAL_SOURCE_DEFAULT (0U)
 #define ENCODER_CAL_SOURCE_NVM (1U)

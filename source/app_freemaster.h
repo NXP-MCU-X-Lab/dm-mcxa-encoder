@@ -23,7 +23,6 @@ extern volatile uint8_t fm_factory_cal_state;
 extern volatile uint8_t fm_factory_cal_progress;
 extern volatile uint32_t fm_factory_cal_status;
 extern volatile uint8_t fm_encoder_valid;
-extern volatile uint32_t fm_encoder_status;
 #ifdef __cplusplus
 }
 #endif

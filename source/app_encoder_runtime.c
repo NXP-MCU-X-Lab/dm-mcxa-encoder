@@ -6,6 +6,7 @@
 #include "fsl_common.h"
 #include "fsl_device_registers.h"
 
+#include "app_adc.h"
 #include "app_encoder_storage.h"
 #include "app_freemaster.h"
 
@@ -30,29 +31,26 @@ typedef struct {
     uint32_t a2_cos_sum;
 } zero_accumulator_t;
 
-adc_sample_result_t adc_result;
+extern uint32_t SystemCoreClock;
+
 encoder_result_t encoder_result;
-encoder_diag_t encoder_diag;
-float encoder_cal_flat[12];
-float encoder_runtime_trim_delta[4];
 volatile uint32_t adc_sample_count;
 volatile uint32_t adc_overrun_count;
-volatile uint32_t encoder_sample_rate_hz = ADC_SAMPLE_RATE_HZ;
 volatile uint32_t encoder_calibration_source;
-volatile uint32_t encoder_storage_crc_ok;
-volatile uint8_t encoder_runtime_trim_enabled;
-volatile uint8_t encoder_runtime_trim_active;
+
+volatile uint32_t encoder_perf_process_cycles;
+volatile uint32_t encoder_perf_process_max;
+volatile uint32_t encoder_perf_isr_cycles;
+volatile uint32_t encoder_perf_isr_max;
+volatile uint32_t encoder_perf_core_clock_hz;
 
 static encoder_calibration_t s_factory_calibration;
 static encoder_state_t s_encoder_state;
 static encoder_runtime_trim_t s_runtime_trim;
 static uint32_t s_app_status_flags;
 
-static volatile adc_sample_result_t s_realtime_adc_result;
 static volatile encoder_result_t s_realtime_encoder_result;
-static volatile encoder_diag_t s_realtime_encoder_diag;
 static volatile uint8_t s_realtime_encoder_valid;
-static volatile uint32_t s_realtime_encoder_status;
 static volatile uint32_t s_realtime_sequence;
 static uint32_t s_published_sequence;
 
@@ -66,30 +64,14 @@ static zero_accumulator_t s_zero_accum;
 static encoder_cal_stats_t s_factory_stats;
 static encoder_raw_sample_t s_factory_zero_sample;
 
-static void refresh_encoder_cal_flat(void)
+/* Cortex-M33 DWT cycle counter — free, 1-cycle precision profiling source.
+ * Has to be unlocked once via TRCENA before CYCCNT will increment. */
+static void perf_dwt_init(void)
 {
-    encoder_cal_flat[0]  = s_factory_calibration.a1.center_sin;
-    encoder_cal_flat[1]  = s_factory_calibration.a1.center_cos;
-    encoder_cal_flat[2]  = s_factory_calibration.a1.t00;
-    encoder_cal_flat[3]  = s_factory_calibration.a1.t10;
-    encoder_cal_flat[4]  = s_factory_calibration.a1.t11;
-    encoder_cal_flat[5]  = s_factory_calibration.a2.center_sin;
-    encoder_cal_flat[6]  = s_factory_calibration.a2.center_cos;
-    encoder_cal_flat[7]  = s_factory_calibration.a2.t00;
-    encoder_cal_flat[8]  = s_factory_calibration.a2.t10;
-    encoder_cal_flat[9]  = s_factory_calibration.a2.t11;
-    encoder_cal_flat[10] = s_factory_calibration.phase_a1_zero_deg;
-    encoder_cal_flat[11] = s_factory_calibration.phase_a2_zero_deg;
-}
-
-static void refresh_runtime_trim_view(void)
-{
-    encoder_runtime_trim_enabled = s_runtime_trim.enabled ? 1U : 0U;
-    encoder_runtime_trim_active = s_runtime_trim.active ? 1U : 0U;
-    encoder_runtime_trim_delta[0] = s_runtime_trim.a1_center_sin_delta;
-    encoder_runtime_trim_delta[1] = s_runtime_trim.a1_center_cos_delta;
-    encoder_runtime_trim_delta[2] = s_runtime_trim.a2_center_sin_delta;
-    encoder_runtime_trim_delta[3] = s_runtime_trim.a2_center_cos_delta;
+    CoreDebug->DEMCR |= CoreDebug_DEMCR_TRCENA_Msk;
+    DWT->CYCCNT = 0U;
+    DWT->CTRL |= DWT_CTRL_CYCCNTENA_Msk;
+    encoder_perf_core_clock_hz = SystemCoreClock;
 }
 
 static encoder_raw_sample_t adc_to_encoder_sample(const adc_sample_result_t *sample)
@@ -138,14 +120,21 @@ static void encoder_sample_callback(const adc_sample_result_t *sample)
     encoder_raw_sample_t encoder_sample = adc_to_encoder_sample(sample);
     encoder_calibration_t effective_calibration;
     encoder_result_t next_encoder_result;
-    encoder_diag_t next_encoder_diag;
+    uint32_t cyc_isr_start;
+    uint32_t cyc_proc_start;
+    uint32_t cyc_proc;
+    uint32_t cyc_isr;
 
+    cyc_isr_start = DWT->CYCCNT;
     encoder_runtime_trim_apply(&s_factory_calibration, &s_runtime_trim, &effective_calibration);
+
+    cyc_proc_start = DWT->CYCCNT;
     encoder_process(&s_encoder_state,
                     &effective_calibration,
                     &encoder_sample,
                     &next_encoder_result,
-                    &next_encoder_diag);
+                    NULL);
+    cyc_proc = DWT->CYCCNT - cyc_proc_start;
 
     if (encoder_calibration_source == ENCODER_CAL_SOURCE_NVM)
     {
@@ -161,14 +150,23 @@ static void encoder_sample_callback(const adc_sample_result_t *sample)
 
     next_encoder_result.status |= s_app_status_flags;
 
-    s_realtime_adc_result = *sample;
     s_realtime_encoder_result = next_encoder_result;
-    s_realtime_encoder_diag = next_encoder_diag;
     s_realtime_encoder_valid = s_factory_calibration.valid ? 1U : 0U;
-    s_realtime_encoder_status = next_encoder_result.status;
     s_realtime_sequence++;
 
     capture_sample_from_isr(&encoder_sample);
+
+    cyc_isr = DWT->CYCCNT - cyc_isr_start;
+    encoder_perf_process_cycles = cyc_proc;
+    encoder_perf_isr_cycles = cyc_isr;
+    if (cyc_proc > encoder_perf_process_max)
+    {
+        encoder_perf_process_max = cyc_proc;
+    }
+    if (cyc_isr > encoder_perf_isr_max)
+    {
+        encoder_perf_isr_max = cyc_isr;
+    }
 }
 
 static void publish_realtime_snapshot(void)
@@ -178,16 +176,12 @@ static void publish_realtime_snapshot(void)
     irq_mask = DisableGlobalIRQ();
     if (s_published_sequence != s_realtime_sequence)
     {
-        adc_result = s_realtime_adc_result;
         encoder_result = s_realtime_encoder_result;
-        encoder_diag = s_realtime_encoder_diag;
         fm_encoder_valid = s_realtime_encoder_valid;
-        fm_encoder_status = s_realtime_encoder_status;
         s_published_sequence = s_realtime_sequence;
     }
     adc_sample_count = adc_get_sample_count();
     adc_overrun_count = adc_get_overrun_count();
-    refresh_runtime_trim_view();
     EnableGlobalIRQ(irq_mask);
 }
 
@@ -226,7 +220,6 @@ static void start_factory_calibration(void)
     encoder_calibration_source = ENCODER_CAL_SOURCE_FACTORY_PENDING;
     s_runtime_trim.enabled = false;
     encoder_runtime_trim_reset(&s_runtime_trim);
-    refresh_runtime_trim_view();
     EnableGlobalIRQ(irq_mask);
 
     fm_factory_cal_state = ENCODER_FACTORY_CAL_STATE_RUNNING;
@@ -349,20 +342,16 @@ static bool take_factory_calibration_done(void)
 
 static void apply_calibration(const encoder_calibration_t *calibration,
                               uint32_t source,
-                              uint32_t app_status_flags,
-                              bool storage_crc_ok)
+                              uint32_t app_status_flags)
 {
     uint32_t irq_mask = DisableGlobalIRQ();
 
     s_factory_calibration = *calibration;
     s_app_status_flags = app_status_flags;
     encoder_calibration_source = source;
-    encoder_storage_crc_ok = storage_crc_ok ? 1U : 0U;
     s_runtime_trim.enabled = (source == ENCODER_CAL_SOURCE_NVM);
     encoder_runtime_trim_reset(&s_runtime_trim);
     encoder_state_init(&s_encoder_state);
-    refresh_encoder_cal_flat();
-    refresh_runtime_trim_view();
     EnableGlobalIRQ(irq_mask);
 }
 
@@ -376,7 +365,7 @@ static void load_startup_calibration(void)
     {
         (void)quality;
         (void)sequence;
-        apply_calibration(&calibration, ENCODER_CAL_SOURCE_NVM, ENCODER_STATUS_OK, true);
+        apply_calibration(&calibration, ENCODER_CAL_SOURCE_NVM, ENCODER_STATUS_OK);
     }
     else
     {
@@ -384,17 +373,13 @@ static void load_startup_calibration(void)
         apply_calibration(&calibration,
                           ENCODER_CAL_SOURCE_DEFAULT,
                           ENCODER_STATUS_CAL_STORAGE_INVALID |
-                              ENCODER_STATUS_FACTORY_CAL_REQUIRED,
-                          false);
+                              ENCODER_STATUS_FACTORY_CAL_REQUIRED);
     }
 }
 
 static void apply_zero(const encoder_calibration_t *calibration)
 {
-    apply_calibration(calibration,
-                      encoder_calibration_source,
-                      s_app_status_flags,
-                      encoder_storage_crc_ok != 0U);
+    apply_calibration(calibration, encoder_calibration_source, s_app_status_flags);
 }
 
 static void finish_zero_if_ready(void)
@@ -418,11 +403,6 @@ static void finish_zero_if_ready(void)
     {
         apply_zero(&calibration);
         fm_encoder_valid = 1U;
-        fm_encoder_status = s_app_status_flags;
-    }
-    else
-    {
-        fm_encoder_status = status | s_app_status_flags;
     }
 }
 
@@ -431,7 +411,6 @@ static void finish_factory_calibration_if_ready(void)
     encoder_calibration_t calibration;
     encoder_state_t temp_state;
     encoder_result_t temp_result;
-    encoder_diag_t temp_diag;
     encoder_cal_quality_t quality;
     uint32_t status = ENCODER_STATUS_OK;
     bool saved;
@@ -451,7 +430,7 @@ static void finish_factory_calibration_if_ready(void)
     }
 
     encoder_state_init(&temp_state);
-    encoder_process(&temp_state, &calibration, &s_factory_zero_sample, &temp_result, &temp_diag);
+    encoder_process(&temp_state, &calibration, &s_factory_zero_sample, &temp_result, NULL);
     quality.sample_count = ENCODER_CAL_SAMPLE_COUNT;
     quality.status = temp_result.status;
     quality.mag16 = temp_result.mag16;
@@ -463,7 +442,7 @@ static void finish_factory_calibration_if_ready(void)
 
     if (saved)
     {
-        apply_calibration(&calibration, ENCODER_CAL_SOURCE_NVM, ENCODER_STATUS_OK, true);
+        apply_calibration(&calibration, ENCODER_CAL_SOURCE_NVM, ENCODER_STATUS_OK);
         fm_factory_cal_state = ENCODER_FACTORY_CAL_STATE_DONE;
         fm_factory_cal_progress = 100U;
         fm_factory_cal_status = ENCODER_STATUS_OK;
@@ -535,11 +514,11 @@ static void service_encoder_capture(void)
 
 void EncoderApp_Init(void)
 {
+    perf_dwt_init();
     encoder_runtime_trim_init(&s_runtime_trim);
     load_startup_calibration();
 
     fm_encoder_valid = s_factory_calibration.valid ? 1U : 0U;
-    fm_encoder_status = s_app_status_flags;
     fm_factory_cal_state = ENCODER_FACTORY_CAL_STATE_IDLE;
     fm_factory_cal_progress = 0U;
     fm_factory_cal_status = ENCODER_STATUS_OK;

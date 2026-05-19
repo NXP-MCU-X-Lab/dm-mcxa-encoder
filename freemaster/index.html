@@ -618,9 +618,6 @@
             <div class="data-row"><span class="label">cal source</span><span class="value" id="cal-source">--</span></div>
             <div class="data-row"><span class="label">mag16 (mean / raw)</span><span class="value" id="mag16">--</span></div>
             <div class="data-row"><span class="label">mag15 (mean / raw)</span><span class="value" id="mag15">--</span></div>
-            <div class="data-row"><span class="label">runtime trim</span><span class="value" id="trim-state">--</span></div>
-            <div class="data-row"><span class="label">trim A1  dS / dC</span><span class="value" id="trim-a1">--</span></div>
-            <div class="data-row"><span class="label">trim A2  dS / dC</span><span class="value" id="trim-a2">--</span></div>
             <div class="error-msg" id="diag-error"></div>
         </section>
 
@@ -632,6 +629,17 @@
             <div class="data-row"><span class="label">samples</span><span class="value" id="adc-samples">--</span></div>
             <div class="data-row"><span class="label">overruns</span><span class="value" id="adc-overruns">--</span></div>
             <div class="error-msg" id="adc-error"></div>
+        </section>
+
+        <section class="card span-12">
+            <div class="card-head">
+                <span class="card-title">Compute Budget · DWT Cycle Profiler</span>
+                <span class="card-unit" id="perf-clock">core --</span>
+            </div>
+            <div class="data-row"><span class="label">encoder_process</span><span class="value" id="perf-process">--</span></div>
+            <div class="data-row"><span class="label">ISR total (process + AGC + snapshot)</span><span class="value" id="perf-isr">--</span></div>
+            <div class="data-row"><span class="label">CPU load @ 10 kHz</span><span class="value" id="perf-cpu">--</span></div>
+            <div class="error-msg" id="perf-error"></div>
         </section>
 
     </div>
@@ -858,19 +866,11 @@
                 const status  = await readU32('encoder_result.status');
                 const valid   = await readU8('fm_encoder_valid');
                 const calSrc  = await readU32('encoder_calibration_source');
-                const trimEn  = await readU8('encoder_runtime_trim_enabled');
-                const trimAc  = await readU8('encoder_runtime_trim_active');
-                const trimArr = (await pcm.ReadFloatArray('encoder_runtime_trim_delta', 4)).data || [0,0,0,0];
 
                 document.getElementById('mag16').textContent = mag16.toFixed(3) + ' / ' + mag16Rw.toFixed(3);
                 document.getElementById('mag15').textContent = mag15.toFixed(3) + ' / ' + mag15Rw.toFixed(3);
                 document.getElementById('enc-status').textContent = fmtHex32(status);
                 document.getElementById('cal-source').textContent = calSourceName(calSrc);
-                document.getElementById('trim-state').textContent =
-                    (Number(trimEn) === 1 ? 'Enabled' : 'Disabled') + '  ·  ' +
-                    (Number(trimAc) === 1 ? 'Active' : 'Idle');
-                document.getElementById('trim-a1').textContent = trimArr[0].toFixed(2) + ' / ' + trimArr[1].toFixed(2);
-                document.getElementById('trim-a2').textContent = trimArr[2].toFixed(2) + ' / ' + trimArr[3].toFixed(2);
 
                 const badge = document.getElementById('enc-valid-badge');
                 badge.classList.remove('is-ok', 'is-warn', 'is-fail');
@@ -895,6 +895,35 @@
                 document.getElementById('adc-error').textContent = '';
             } catch (e) {
                 document.getElementById('adc-error').textContent = 'adc read failed: ' + e.message;
+            }
+
+            try {
+                const procCyc  = await readU32('encoder_perf_process_cycles');
+                const procMax  = await readU32('encoder_perf_process_max');
+                const isrCyc   = await readU32('encoder_perf_isr_cycles');
+                const isrMax   = await readU32('encoder_perf_isr_max');
+                const coreHz   = await readU32('encoder_perf_core_clock_hz');
+
+                /* Render cycles + microseconds. Guard against coreHz=0 (DWT not
+                 * ready) so we never divide by zero. */
+                const hz = Number(coreHz) >>> 0;
+                const cycToUs = (c) => (hz > 0 ? ((Number(c) >>> 0) * 1.0e6 / hz) : 0);
+                const fmtCyc = (c, max) =>
+                    cycToUs(c).toFixed(2) + ' us  (peak ' + cycToUs(max).toFixed(2) + ' us · '
+                    + (Number(c) >>> 0) + ' cyc)';
+
+                document.getElementById('perf-process').textContent = fmtCyc(procCyc, procMax);
+                document.getElementById('perf-isr').textContent     = fmtCyc(isrCyc, isrMax);
+                /* CPU load: ISR cycles per 10 kHz sample period; budget = 1/10kHz = 100 us. */
+                const cpuPct = (cycToUs(isrCyc) / 100.0) * 100.0;
+                const peakPct = (cycToUs(isrMax) / 100.0) * 100.0;
+                document.getElementById('perf-cpu').textContent =
+                    cpuPct.toFixed(2) + ' %  (peak ' + peakPct.toFixed(2) + ' %)';
+                document.getElementById('perf-clock').textContent =
+                    'core ' + (hz / 1.0e6).toFixed(1) + ' MHz';
+                document.getElementById('perf-error').textContent = '';
+            } catch (e) {
+                document.getElementById('perf-error').textContent = 'perf read failed: ' + e.message;
             }
         }
 
