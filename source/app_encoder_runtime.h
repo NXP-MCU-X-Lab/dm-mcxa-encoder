@@ -3,6 +3,7 @@
 
 #include <stdint.h>
 
+#include "app_adc.h"
 #include "app_encoder.h"
 
 #ifdef __cplusplus
@@ -10,6 +11,11 @@ extern "C" {
 #endif
 
 extern encoder_result_t encoder_result;
+/* Raw 4-channel ADC sample, refreshed every ADC ISR. Exposed for the
+ * FreeMASTER oscilloscope so the host can plot the four OPAMP outputs
+ * directly. Read/write tearing is possible (8 bytes, non-atomic on M33)
+ * but harmless for scope visualisation. */
+extern adc_sample_result_t adc_result;
 extern volatile uint32_t adc_sample_count;
 extern volatile uint32_t adc_overrun_count;
 extern volatile uint32_t encoder_calibration_source;

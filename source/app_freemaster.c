@@ -48,6 +48,14 @@ FMSTR_TSA_TABLE_BEGIN(first_table)
     FMSTR_TSA_RO_VAR(encoder_perf_isr_max, FMSTR_TSA_UINT32)
     FMSTR_TSA_RO_VAR(encoder_perf_core_clock_hz, FMSTR_TSA_UINT32)
 
+    /* Raw 4-channel ADC sample — exposed for the FreeMASTER oscilloscope. */
+    FMSTR_TSA_STRUCT(adc_sample_result_t)
+        FMSTR_TSA_MEMBER(adc_sample_result_t, a1_sin_raw, FMSTR_TSA_UINT16)
+        FMSTR_TSA_MEMBER(adc_sample_result_t, a1_cos_raw, FMSTR_TSA_UINT16)
+        FMSTR_TSA_MEMBER(adc_sample_result_t, a2_sin_raw, FMSTR_TSA_UINT16)
+        FMSTR_TSA_MEMBER(adc_sample_result_t, a2_cos_raw, FMSTR_TSA_UINT16)
+    FMSTR_TSA_RO_VAR(adc_result, FMSTR_TSA_USERTYPE(adc_sample_result_t))
+
     FMSTR_TSA_STRUCT(encoder_result_t)
         FMSTR_TSA_MEMBER(encoder_result_t, angle_deg, FMSTR_TSA_FLOAT)
         FMSTR_TSA_MEMBER(encoder_result_t, angle_deg_raw, FMSTR_TSA_FLOAT)

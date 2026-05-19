@@ -34,6 +34,7 @@ typedef struct {
 extern uint32_t SystemCoreClock;
 
 encoder_result_t encoder_result;
+adc_sample_result_t adc_result;
 volatile uint32_t adc_sample_count;
 volatile uint32_t adc_overrun_count;
 volatile uint32_t encoder_calibration_source;
@@ -124,6 +125,9 @@ static void encoder_sample_callback(const adc_sample_result_t *sample)
     uint32_t cyc_proc_start;
     uint32_t cyc_proc;
     uint32_t cyc_isr;
+
+    /* Publish raw ADC sample for the FreeMASTER oscilloscope. */
+    adc_result = *sample;
 
     cyc_isr_start = DWT->CYCCNT;
     encoder_runtime_trim_apply(&s_factory_calibration, &s_runtime_trim, &effective_calibration);
