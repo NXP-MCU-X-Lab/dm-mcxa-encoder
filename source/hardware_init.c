@@ -34,7 +34,7 @@
 #define HEARTBEAT_TOGGLE_INTERVAL_MS 100U
 
 #define DEMO_OPAMP_COMP_CAP       kOPAMP_FitGain2x
-#define DEMO_OPAMP_BIAS_CURRENT   kOPAMP_ChangeToQuarter
+#define DEMO_OPAMP_BIAS_CURRENT   kOPAMP_NoChange
 
 
 

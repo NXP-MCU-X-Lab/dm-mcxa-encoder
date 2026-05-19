@@ -52,7 +52,7 @@
 			<member name="unit" type="string">unit</member>
 			<member name="period" type="sint32">1000</member>
 			<member name="address" type="string">adc_result.a1_cos_raw</member>
-			<member name="last_addr" type="uint32">0x20000012</member>
+			<member name="last_addr" type="uint32">0x2000001A</member>
 			<member name="byte_size" type="sint32">2</member>
 			<member name="description" type="string"/>
 			<member name="comment" type="string"/>
@@ -101,7 +101,7 @@
 			<member name="unit" type="string">unit</member>
 			<member name="period" type="sint32">1000</member>
 			<member name="address" type="string">adc_result.a1_sin_raw</member>
-			<member name="last_addr" type="uint32">0x20000010</member>
+			<member name="last_addr" type="uint32">0x20000018</member>
 			<member name="byte_size" type="sint32">2</member>
 			<member name="description" type="string"/>
 			<member name="comment" type="string"/>
@@ -150,7 +150,7 @@
 			<member name="unit" type="string">unit</member>
 			<member name="period" type="sint32">1000</member>
 			<member name="address" type="string">adc_result.a2_cos_raw</member>
-			<member name="last_addr" type="uint32">0x20000016</member>
+			<member name="last_addr" type="uint32">0x2000001E</member>
 			<member name="byte_size" type="sint32">2</member>
 			<member name="description" type="string"/>
 			<member name="comment" type="string"/>
@@ -199,7 +199,7 @@
 			<member name="unit" type="string">unit</member>
 			<member name="period" type="sint32">1000</member>
 			<member name="address" type="string">adc_result.a2_sin_raw</member>
-			<member name="last_addr" type="uint32">0x20000014</member>
+			<member name="last_addr" type="uint32">0x2000001C</member>
 			<member name="byte_size" type="sint32">2</member>
 			<member name="description" type="string"/>
 			<member name="comment" type="string"/>
@@ -471,8 +471,6 @@
 		<object name="ObjId0032" type="CObList"/>
 		<object name="ObjId0033" type="CObList">
 			<member name="item0" type="CObject_ptr">ObjId0143</member>
-			<member name="item1" type="CObject_ptr">ObjId0192</member>
-			<member name="item2" type="CObject_ptr">ObjId0213</member>
 		</object>
 		<object name="ObjId0143" type="CPrjItemScope">
 			<member name="parent_item" type="CObject_ptr">ObjId0030</member>
@@ -621,274 +619,6 @@
 			<member name="raxis_subsets" type="sint32">0</member>
 		</object>
 		<object name="ObjId0151" type="CPrjItemRS_YBlockInfo">
-			<member name="join_class" type="sint32">5</member>
-			<member name="laxis_label" type="string">lAxis</member>
-			<member name="laxis_style" type="sint32">0</member>
-			<member name="laxis_min" type="real64">-1.00000000000000000000e+01</member>
-			<member name="laxis_max" type="real64">1.00000000000000000000e+01</member>
-			<member name="laxis_min_auto" type="sint32">1</member>
-			<member name="laxis_max_auto" type="sint32">1</member>
-			<member name="raxis_label" type="string">rAxis</member>
-			<member name="raxis_style" type="sint32">0</member>
-			<member name="raxis_min" type="real64">-1.00000000000000000000e+01</member>
-			<member name="raxis_max" type="real64">1.00000000000000000000e+01</member>
-			<member name="raxis_min_auto" type="sint32">1</member>
-			<member name="raxis_max_auto" type="sint32">1</member>
-			<member name="raxis_subsets" type="sint32">0</member>
-		</object>
-		<object name="ObjId0192" type="CPrjItemScope">
-			<member name="parent_item" type="CObject_ptr">ObjId0030</member>
-			<member name="tree_expand" type="sint32">1</member>
-			<member name="data_capture_mode" type="sint32">0</member>
-			<member name="data_capture_onaction" type="sint32">0</member>
-			<member name="data_capture_file_type" type="sint32">0</member>
-			<member name="data_capture_dir" type="string">C:\Data</member>
-			<member name="data_absolute_time" type="sint32">0</member>
-			<member name="name" type="string">angle_deg</member>
-			<member name="href" type="string"/>
-			<member name="graph_buffer" type="sint32">10000</member>
-			<member name="graph_type" type="sint32">0</member>
-			<member name="graph_x_units" type="sint32">2</member>
-			<member name="graph_x_label" type="string">Time</member>
-			<member name="graph_x_addunits" type="sint32">1</member>
-			<member name="graph_legend_loc" type="sint32">0</member>
-			<member name="graph_legen_vis" type="sint32">1</member>
-			<member name="graph_legend_inside" type="sint32">1</member>
-			<member name="graph_grid_horz" type="sint32">1</member>
-			<member name="graph_grid_vert" type="sint32">1</member>
-			<member name="graph_x_min" type="real64">0.00000000000000000000e+00</member>
-			<member name="graph_x_max" type="real64">1.00000000000000000000e+02</member>
-			<member name="graph_x_min_auto" type="sint32">1</member>
-			<member name="graph_x_max_auto" type="sint32">1</member>
-			<member name="graph_break_line" type="sint32">0</member>
-			<member name="graph_var_count" type="sint32">0</member>
-			<member name="var_count" type="sint32">0</member>
-			<member name="yblock0_info" type="CPrjItemRS_YBlockInfo">ObjId0194</member>
-			<member name="yblock1_info" type="CPrjItemRS_YBlockInfo">ObjId0195</member>
-			<member name="yblock2_info" type="CPrjItemRS_YBlockInfo">ObjId0196</member>
-			<member name="yblock3_info" type="CPrjItemRS_YBlockInfo">ObjId0197</member>
-			<member name="yblock4_info" type="CPrjItemRS_YBlockInfo">ObjId0198</member>
-			<member name="yblock5_info" type="CPrjItemRS_YBlockInfo">ObjId0199</member>
-			<member name="scope_period" type="real64">2.00000000000000004163e-02</member>
-			<member name="scope_x_autoscale" type="sint32">1</member>
-			<member name="scope_x_width" type="real64">1.00000000000000000000e+01</member>
-			<member name="scope_ignore_duplicity" type="sint32">0</member>
-		</object>
-		<object name="ObjId0194" type="CPrjItemRS_YBlockInfo">
-			<member name="join_class" type="sint32">0</member>
-			<member name="laxis_label" type="string">lAxis</member>
-			<member name="laxis_style" type="sint32">0</member>
-			<member name="laxis_min" type="real64">-1.00000000000000000000e+01</member>
-			<member name="laxis_max" type="real64">1.00000000000000000000e+01</member>
-			<member name="laxis_min_auto" type="sint32">1</member>
-			<member name="laxis_max_auto" type="sint32">1</member>
-			<member name="raxis_label" type="string">rAxis</member>
-			<member name="raxis_style" type="sint32">0</member>
-			<member name="raxis_min" type="real64">-1.00000000000000000000e+01</member>
-			<member name="raxis_max" type="real64">1.00000000000000000000e+01</member>
-			<member name="raxis_min_auto" type="sint32">1</member>
-			<member name="raxis_max_auto" type="sint32">1</member>
-			<member name="raxis_subsets" type="sint32">0</member>
-		</object>
-		<object name="ObjId0195" type="CPrjItemRS_YBlockInfo">
-			<member name="join_class" type="sint32">1</member>
-			<member name="laxis_label" type="string">lAxis</member>
-			<member name="laxis_style" type="sint32">0</member>
-			<member name="laxis_min" type="real64">-1.00000000000000000000e+01</member>
-			<member name="laxis_max" type="real64">1.00000000000000000000e+01</member>
-			<member name="laxis_min_auto" type="sint32">1</member>
-			<member name="laxis_max_auto" type="sint32">1</member>
-			<member name="raxis_label" type="string">rAxis</member>
-			<member name="raxis_style" type="sint32">0</member>
-			<member name="raxis_min" type="real64">-1.00000000000000000000e+01</member>
-			<member name="raxis_max" type="real64">1.00000000000000000000e+01</member>
-			<member name="raxis_min_auto" type="sint32">1</member>
-			<member name="raxis_max_auto" type="sint32">1</member>
-			<member name="raxis_subsets" type="sint32">0</member>
-		</object>
-		<object name="ObjId0196" type="CPrjItemRS_YBlockInfo">
-			<member name="join_class" type="sint32">2</member>
-			<member name="laxis_label" type="string">lAxis</member>
-			<member name="laxis_style" type="sint32">0</member>
-			<member name="laxis_min" type="real64">-1.00000000000000000000e+01</member>
-			<member name="laxis_max" type="real64">1.00000000000000000000e+01</member>
-			<member name="laxis_min_auto" type="sint32">1</member>
-			<member name="laxis_max_auto" type="sint32">1</member>
-			<member name="raxis_label" type="string">rAxis</member>
-			<member name="raxis_style" type="sint32">0</member>
-			<member name="raxis_min" type="real64">-1.00000000000000000000e+01</member>
-			<member name="raxis_max" type="real64">1.00000000000000000000e+01</member>
-			<member name="raxis_min_auto" type="sint32">1</member>
-			<member name="raxis_max_auto" type="sint32">1</member>
-			<member name="raxis_subsets" type="sint32">0</member>
-		</object>
-		<object name="ObjId0197" type="CPrjItemRS_YBlockInfo">
-			<member name="join_class" type="sint32">3</member>
-			<member name="laxis_label" type="string">lAxis</member>
-			<member name="laxis_style" type="sint32">0</member>
-			<member name="laxis_min" type="real64">-1.00000000000000000000e+01</member>
-			<member name="laxis_max" type="real64">1.00000000000000000000e+01</member>
-			<member name="laxis_min_auto" type="sint32">1</member>
-			<member name="laxis_max_auto" type="sint32">1</member>
-			<member name="raxis_label" type="string">rAxis</member>
-			<member name="raxis_style" type="sint32">0</member>
-			<member name="raxis_min" type="real64">-1.00000000000000000000e+01</member>
-			<member name="raxis_max" type="real64">1.00000000000000000000e+01</member>
-			<member name="raxis_min_auto" type="sint32">1</member>
-			<member name="raxis_max_auto" type="sint32">1</member>
-			<member name="raxis_subsets" type="sint32">0</member>
-		</object>
-		<object name="ObjId0198" type="CPrjItemRS_YBlockInfo">
-			<member name="join_class" type="sint32">4</member>
-			<member name="laxis_label" type="string">lAxis</member>
-			<member name="laxis_style" type="sint32">0</member>
-			<member name="laxis_min" type="real64">-1.00000000000000000000e+01</member>
-			<member name="laxis_max" type="real64">1.00000000000000000000e+01</member>
-			<member name="laxis_min_auto" type="sint32">1</member>
-			<member name="laxis_max_auto" type="sint32">1</member>
-			<member name="raxis_label" type="string">rAxis</member>
-			<member name="raxis_style" type="sint32">0</member>
-			<member name="raxis_min" type="real64">-1.00000000000000000000e+01</member>
-			<member name="raxis_max" type="real64">1.00000000000000000000e+01</member>
-			<member name="raxis_min_auto" type="sint32">1</member>
-			<member name="raxis_max_auto" type="sint32">1</member>
-			<member name="raxis_subsets" type="sint32">0</member>
-		</object>
-		<object name="ObjId0199" type="CPrjItemRS_YBlockInfo">
-			<member name="join_class" type="sint32">5</member>
-			<member name="laxis_label" type="string">lAxis</member>
-			<member name="laxis_style" type="sint32">0</member>
-			<member name="laxis_min" type="real64">-1.00000000000000000000e+01</member>
-			<member name="laxis_max" type="real64">1.00000000000000000000e+01</member>
-			<member name="laxis_min_auto" type="sint32">1</member>
-			<member name="laxis_max_auto" type="sint32">1</member>
-			<member name="raxis_label" type="string">rAxis</member>
-			<member name="raxis_style" type="sint32">0</member>
-			<member name="raxis_min" type="real64">-1.00000000000000000000e+01</member>
-			<member name="raxis_max" type="real64">1.00000000000000000000e+01</member>
-			<member name="raxis_min_auto" type="sint32">1</member>
-			<member name="raxis_max_auto" type="sint32">1</member>
-			<member name="raxis_subsets" type="sint32">0</member>
-		</object>
-		<object name="ObjId0213" type="CPrjItemScope">
-			<member name="parent_item" type="CObject_ptr">ObjId0030</member>
-			<member name="tree_expand" type="sint32">1</member>
-			<member name="data_capture_mode" type="sint32">0</member>
-			<member name="data_capture_onaction" type="sint32">0</member>
-			<member name="data_capture_file_type" type="sint32">0</member>
-			<member name="data_capture_dir" type="string">C:\Data</member>
-			<member name="data_absolute_time" type="sint32">0</member>
-			<member name="name" type="string">motor_speed</member>
-			<member name="href" type="string"/>
-			<member name="graph_buffer" type="sint32">10000</member>
-			<member name="graph_type" type="sint32">0</member>
-			<member name="graph_x_units" type="sint32">2</member>
-			<member name="graph_x_label" type="string">Time</member>
-			<member name="graph_x_addunits" type="sint32">1</member>
-			<member name="graph_legend_loc" type="sint32">0</member>
-			<member name="graph_legen_vis" type="sint32">1</member>
-			<member name="graph_legend_inside" type="sint32">1</member>
-			<member name="graph_grid_horz" type="sint32">1</member>
-			<member name="graph_grid_vert" type="sint32">1</member>
-			<member name="graph_x_min" type="real64">0.00000000000000000000e+00</member>
-			<member name="graph_x_max" type="real64">1.00000000000000000000e+02</member>
-			<member name="graph_x_min_auto" type="sint32">1</member>
-			<member name="graph_x_max_auto" type="sint32">1</member>
-			<member name="graph_break_line" type="sint32">0</member>
-			<member name="graph_var_count" type="sint32">0</member>
-			<member name="var_count" type="sint32">0</member>
-			<member name="yblock0_info" type="CPrjItemRS_YBlockInfo">ObjId0215</member>
-			<member name="yblock1_info" type="CPrjItemRS_YBlockInfo">ObjId0216</member>
-			<member name="yblock2_info" type="CPrjItemRS_YBlockInfo">ObjId0217</member>
-			<member name="yblock3_info" type="CPrjItemRS_YBlockInfo">ObjId0218</member>
-			<member name="yblock4_info" type="CPrjItemRS_YBlockInfo">ObjId0219</member>
-			<member name="yblock5_info" type="CPrjItemRS_YBlockInfo">ObjId0220</member>
-			<member name="scope_period" type="real64">2.00000000000000004163e-02</member>
-			<member name="scope_x_autoscale" type="sint32">1</member>
-			<member name="scope_x_width" type="real64">1.00000000000000000000e+01</member>
-			<member name="scope_ignore_duplicity" type="sint32">0</member>
-		</object>
-		<object name="ObjId0215" type="CPrjItemRS_YBlockInfo">
-			<member name="join_class" type="sint32">0</member>
-			<member name="laxis_label" type="string">lAxis</member>
-			<member name="laxis_style" type="sint32">0</member>
-			<member name="laxis_min" type="real64">-1.00000000000000000000e+01</member>
-			<member name="laxis_max" type="real64">1.00000000000000000000e+01</member>
-			<member name="laxis_min_auto" type="sint32">1</member>
-			<member name="laxis_max_auto" type="sint32">1</member>
-			<member name="raxis_label" type="string">rAxis</member>
-			<member name="raxis_style" type="sint32">0</member>
-			<member name="raxis_min" type="real64">-1.00000000000000000000e+01</member>
-			<member name="raxis_max" type="real64">1.00000000000000000000e+01</member>
-			<member name="raxis_min_auto" type="sint32">1</member>
-			<member name="raxis_max_auto" type="sint32">1</member>
-			<member name="raxis_subsets" type="sint32">0</member>
-		</object>
-		<object name="ObjId0216" type="CPrjItemRS_YBlockInfo">
-			<member name="join_class" type="sint32">1</member>
-			<member name="laxis_label" type="string">lAxis</member>
-			<member name="laxis_style" type="sint32">0</member>
-			<member name="laxis_min" type="real64">-1.00000000000000000000e+01</member>
-			<member name="laxis_max" type="real64">1.00000000000000000000e+01</member>
-			<member name="laxis_min_auto" type="sint32">1</member>
-			<member name="laxis_max_auto" type="sint32">1</member>
-			<member name="raxis_label" type="string">rAxis</member>
-			<member name="raxis_style" type="sint32">0</member>
-			<member name="raxis_min" type="real64">-1.00000000000000000000e+01</member>
-			<member name="raxis_max" type="real64">1.00000000000000000000e+01</member>
-			<member name="raxis_min_auto" type="sint32">1</member>
-			<member name="raxis_max_auto" type="sint32">1</member>
-			<member name="raxis_subsets" type="sint32">0</member>
-		</object>
-		<object name="ObjId0217" type="CPrjItemRS_YBlockInfo">
-			<member name="join_class" type="sint32">2</member>
-			<member name="laxis_label" type="string">lAxis</member>
-			<member name="laxis_style" type="sint32">0</member>
-			<member name="laxis_min" type="real64">-1.00000000000000000000e+01</member>
-			<member name="laxis_max" type="real64">1.00000000000000000000e+01</member>
-			<member name="laxis_min_auto" type="sint32">1</member>
-			<member name="laxis_max_auto" type="sint32">1</member>
-			<member name="raxis_label" type="string">rAxis</member>
-			<member name="raxis_style" type="sint32">0</member>
-			<member name="raxis_min" type="real64">-1.00000000000000000000e+01</member>
-			<member name="raxis_max" type="real64">1.00000000000000000000e+01</member>
-			<member name="raxis_min_auto" type="sint32">1</member>
-			<member name="raxis_max_auto" type="sint32">1</member>
-			<member name="raxis_subsets" type="sint32">0</member>
-		</object>
-		<object name="ObjId0218" type="CPrjItemRS_YBlockInfo">
-			<member name="join_class" type="sint32">3</member>
-			<member name="laxis_label" type="string">lAxis</member>
-			<member name="laxis_style" type="sint32">0</member>
-			<member name="laxis_min" type="real64">-1.00000000000000000000e+01</member>
-			<member name="laxis_max" type="real64">1.00000000000000000000e+01</member>
-			<member name="laxis_min_auto" type="sint32">1</member>
-			<member name="laxis_max_auto" type="sint32">1</member>
-			<member name="raxis_label" type="string">rAxis</member>
-			<member name="raxis_style" type="sint32">0</member>
-			<member name="raxis_min" type="real64">-1.00000000000000000000e+01</member>
-			<member name="raxis_max" type="real64">1.00000000000000000000e+01</member>
-			<member name="raxis_min_auto" type="sint32">1</member>
-			<member name="raxis_max_auto" type="sint32">1</member>
-			<member name="raxis_subsets" type="sint32">0</member>
-		</object>
-		<object name="ObjId0219" type="CPrjItemRS_YBlockInfo">
-			<member name="join_class" type="sint32">4</member>
-			<member name="laxis_label" type="string">lAxis</member>
-			<member name="laxis_style" type="sint32">0</member>
-			<member name="laxis_min" type="real64">-1.00000000000000000000e+01</member>
-			<member name="laxis_max" type="real64">1.00000000000000000000e+01</member>
-			<member name="laxis_min_auto" type="sint32">1</member>
-			<member name="laxis_max_auto" type="sint32">1</member>
-			<member name="raxis_label" type="string">rAxis</member>
-			<member name="raxis_style" type="sint32">0</member>
-			<member name="raxis_min" type="real64">-1.00000000000000000000e+01</member>
-			<member name="raxis_max" type="real64">1.00000000000000000000e+01</member>
-			<member name="raxis_min_auto" type="sint32">1</member>
-			<member name="raxis_max_auto" type="sint32">1</member>
-			<member name="raxis_subsets" type="sint32">0</member>
-		</object>
-		<object name="ObjId0220" type="CPrjItemRS_YBlockInfo">
 			<member name="join_class" type="sint32">5</member>
 			<member name="laxis_label" type="string">lAxis</member>
 			<member name="laxis_style" type="sint32">0</member>

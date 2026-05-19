@@ -14,6 +14,7 @@
 
 volatile uint8_t fm_reset_ctrl;
 volatile uint8_t fm_zero_ctrl;
+volatile uint8_t fm_turn_reset_ctrl;
 volatile uint8_t fm_factory_cal_ctrl;
 volatile uint8_t fm_factory_cal_state;
 volatile uint8_t fm_factory_cal_progress;
@@ -41,6 +42,7 @@ FMSTR_TSA_TABLE_BEGIN(first_table)
     // ========== Simple Variables ==========
     FMSTR_TSA_RW_VAR(fm_reset_ctrl, FMSTR_TSA_UINT8)
     FMSTR_TSA_RW_VAR(fm_zero_ctrl, FMSTR_TSA_UINT8)
+    FMSTR_TSA_RW_VAR(fm_turn_reset_ctrl, FMSTR_TSA_UINT8)
     FMSTR_TSA_RW_VAR(fm_factory_cal_ctrl, FMSTR_TSA_UINT8)
     FMSTR_TSA_RO_VAR(fm_factory_cal_state, FMSTR_TSA_UINT8)
     FMSTR_TSA_RO_VAR(fm_factory_cal_progress, FMSTR_TSA_UINT8)
@@ -54,7 +56,6 @@ FMSTR_TSA_TABLE_BEGIN(first_table)
     FMSTR_TSA_RO_VAR(encoder_storage_crc_ok, FMSTR_TSA_UINT32)
     FMSTR_TSA_RO_VAR(encoder_runtime_trim_enabled, FMSTR_TSA_UINT8)
     FMSTR_TSA_RO_VAR(encoder_runtime_trim_active, FMSTR_TSA_UINT8)
-    FMSTR_TSA_RO_VAR(encoder_runtime_trim_freeze_reason, FMSTR_TSA_UINT32)
 
     // ========== ADC Result Structure ==========
     FMSTR_TSA_STRUCT(adc_sample_result_t)
@@ -71,12 +72,17 @@ FMSTR_TSA_TABLE_BEGIN(first_table)
         FMSTR_TSA_MEMBER(encoder_result_t, angle_deg, FMSTR_TSA_FLOAT)
         FMSTR_TSA_MEMBER(encoder_result_t, angle_deg_raw, FMSTR_TSA_FLOAT)
         FMSTR_TSA_MEMBER(encoder_result_t, angle_deg_filtered, FMSTR_TSA_FLOAT)
+        FMSTR_TSA_MEMBER(encoder_result_t, angular_velocity_dps, FMSTR_TSA_FLOAT)
         FMSTR_TSA_MEMBER(encoder_result_t, angle_counts, FMSTR_TSA_UINT32)
         FMSTR_TSA_MEMBER(encoder_result_t, phase16_deg, FMSTR_TSA_FLOAT)
         FMSTR_TSA_MEMBER(encoder_result_t, phase15_deg, FMSTR_TSA_FLOAT)
         FMSTR_TSA_MEMBER(encoder_result_t, coarse_deg, FMSTR_TSA_FLOAT)
         FMSTR_TSA_MEMBER(encoder_result_t, mag16, FMSTR_TSA_FLOAT)
         FMSTR_TSA_MEMBER(encoder_result_t, mag15, FMSTR_TSA_FLOAT)
+        FMSTR_TSA_MEMBER(encoder_result_t, mag16_raw, FMSTR_TSA_FLOAT)
+        FMSTR_TSA_MEMBER(encoder_result_t, mag15_raw, FMSTR_TSA_FLOAT)
+        FMSTR_TSA_MEMBER(encoder_result_t, turn_count, FMSTR_TSA_SINT32)
+        FMSTR_TSA_MEMBER(encoder_result_t, multi_turn_deg, FMSTR_TSA_FLOAT)
         FMSTR_TSA_MEMBER(encoder_result_t, status, FMSTR_TSA_UINT32)
     FMSTR_TSA_RO_VAR(encoder_result, FMSTR_TSA_USERTYPE(encoder_result_t))
 
@@ -112,6 +118,7 @@ void AppFreemaster_Init(void)
     FMSTR_Init();
     fm_reset_ctrl = 0;
     fm_zero_ctrl = 0;
+    fm_turn_reset_ctrl = 0;
     fm_factory_cal_ctrl = 0;
     fm_factory_cal_state = 0;
     fm_factory_cal_progress = 0;
@@ -125,7 +132,6 @@ void AppFreemaster_Init(void)
     encoder_storage_crc_ok = 0;
     encoder_runtime_trim_enabled = 0;
     encoder_runtime_trim_active = 0;
-    encoder_runtime_trim_freeze_reason = ENCODER_RUNTIME_TRIM_FREEZE_DISABLED;
 
 #if FMSTR_SHORT_INTR || FMSTR_LONG_INTR
     NVIC_SetPriority(LPUART0_IRQn, 3U);

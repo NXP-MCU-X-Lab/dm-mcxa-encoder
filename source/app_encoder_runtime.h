@@ -22,7 +22,6 @@ extern volatile uint32_t encoder_calibration_source;
 extern volatile uint32_t encoder_storage_crc_ok;
 extern volatile uint8_t encoder_runtime_trim_enabled;
 extern volatile uint8_t encoder_runtime_trim_active;
-extern volatile uint32_t encoder_runtime_trim_freeze_reason;
 
 #define ENCODER_CAL_SOURCE_DEFAULT (0U)
 #define ENCODER_CAL_SOURCE_NVM (1U)

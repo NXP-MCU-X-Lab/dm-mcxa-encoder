@@ -1,124 +1,150 @@
-# NXP MCXA344 Inductive Encoder Demo
+# NXP MCXA344 感应式编码器
 
-This project validates a dual-track inductive encoder on MCXA344. The firmware samples four ADC channels at 10 kHz, solves a 16/15-cycle Vernier absolute angle, and exposes the result through FreeMASTER.
+双轨感应式编码器示例:16/15 Vernier 单圈绝对角 + 多圈累计,FreeMASTER 实时监控。
 
-## Current Architecture
+---
 
-- `source/app_adc.*`: CTIMER0-triggered LPADC0/1 realtime sampling.
-- `source/app_encoder.*`: host-testable encoder math, calibration fitting, zero capture, and RAM-only runtime trim.
-- `source/app_encoder_storage.*`: factory calibration block packing, CRC, sequence selection, and Flash storage.
-- `source/app_encoder_runtime.*`: ADC callback, snapshot publishing, factory calibration state machine, zero capture, and runtime trim wiring.
-- `source/app_freemaster.*`: FreeMASTER TSA variables and commands.
+## 原理
 
-## Calibration Model
+### 信号链
 
-Normal users should not need FreeMASTER calibration. Boot order is:
-
-1. Load the latest valid factory calibration block from Flash.
-2. If the block is missing or CRC-invalid, fall back to board defaults and set warning status bits.
-3. Apply RAM-only runtime center trim when the signal is healthy and enough phase coverage has been observed.
-
-The factory calibration block is stored in the last 8 KB Flash sector reserved by the Keil target:
-
-```text
-0x0001E000..0x0001FFFF
+```
+ADC × 4  (10 kHz, hw avg 8×)
+   │
+   ▼
+椭圆校正           Heydemann:min/max 取中心,LSQ 拟椭圆,Cholesky 解 T 矩阵
+   │
+   ▼
+atan2  →  phase_a1 (16 周期), phase_a2 (15 周期)
+   │
+   ▼
+Vernier 解算
+   coarse = wrap(p16 - p15)              ← 全圈过零一次,粗角
+   angle  = coarse + (p16 - 16·coarse)/16 ← p16 精修高分辨率
+   │
+   ▼
+Type-II PLL  (BW=100 Hz, ζ=0.707)        ← 滤波角度 + 角速度
+   │
+   ▼
+多圈累计  (跨 0/360° ±1)
+   │
+   ▼
+输出: angle_deg, multi_turn_deg, angular_velocity_dps
 ```
 
-The linker scatter file limits code placement to `0x00000000..0x0001DFFF`.
+### Vernier 16/15
 
-Runtime trim only adjusts the RAM overlay for:
+两组感应轨道在一圈内分别有 16 和 15 个电气周期。相位差 `p16 − p15` 在一整圈内
+**恰好变化 360°**,这就是全圈唯一的"粗"角;再用高分辨率 `p16` 精修,得到全分辨率
+绝对角。游标卡尺(Vernier)原理用到角度编码上的经典做法。
 
-- A1 `center_sin`
-- A1 `center_cos`
-- A2 `center_sin`
-- A2 `center_cos`
+### 椭圆校正(Heydemann)
 
-It never changes stored factory calibration, gain, phase, mechanical zero, or LUT data.
+raw (sin, cos) 因幅值不等、零位偏移、非正交三种偏差,落在一个椭圆上而非单位圆。
+校正公式:
 
-## Factory Service Flow
+```
+(corr_sin, corr_cos) = T · ((raw_sin, raw_cos) - center)
+```
 
-Use `freemaster/index.html` or write TSA variables directly:
+其中 `T` 是 Cholesky 下三角矩阵,满足 `Tᵀ·T = M`,而 `M` 来自代数最小二乘拟合
+`a·x² + b·xy + c·y² = 1`。校正后任意转角的 `‖corr‖ ≈ 1.0`,atan2 直接给出真实相位。
 
-- `fm_factory_cal_ctrl = 1`: start factory calibration.
-- `fm_factory_cal_state`: `0 idle`, `1 running`, `2 done`, `3 failed`.
-- `fm_factory_cal_progress`: `0..100`.
-- `fm_factory_cal_status`: encoder/storage status flags.
+### Type-II 跟踪观测器(软件 PLL)
 
-Factory calibration collects 8192 samples at an effective 1 kHz rate. Rotate through at least one full mechanical revolution during the capture window. The last captured sample is used as the factory zero reference, so the factory fixture/process must end at the intended zero position.
+经典 resolver-to-digital 输出级。闭环传递函数 `s² + Kp·s + Ki`,
+`Kp = 2ζωₙ`、`Ki = ωₙ²`。对匀速旋转零稳态相位滞后,同时输出**滤波角度**和**角速度**。
+带宽 `ENCODER_TRACKING_BW_HZ` 可调。
 
-`Zero Here` remains a service command only. It updates the current RAM calibration zero but does not write Flash.
+**输出层 hysteresis**(`ENCODER_OUTPUT_DEADBAND_DEG ≈ 0.015°` ≈ 2.7 LSB):新角度跟
+上一次发布差异 < 门限时,保持上一次值。这是 AS5048 / iC-MU 等磁/感应编码器的业界
+标准做法 —— 不动 PLL 数学,只在发布层加 dead-band。代价是低于 `(threshold / dt)`
+的极慢速被视作静止。
 
-## FreeMASTER Variables
+分支滑移保护使用 `last_angle_raw + velocity·dt` 做预测 — 不取 PLL 滤波后的角度,
+避免离散分支判别被跟踪观测器的滞后污染。
 
-Core outputs:
+---
 
-- `encoder_result.angle_deg`: published display angle, same value as `angle_deg_filtered`.
-- `encoder_result.angle_deg_raw`: fast unfiltered Vernier angle solution.
-- `encoder_result.angle_deg_filtered`: display angle from a Type-II tracking observer (software PLL) — the canonical resolver-to-digital loop (AD2S1210 / TI SPRAA94). Tracks constant-velocity rotation with zero steady-state phase lag. Tunable via `ENCODER_TRACKING_BW_HZ` (default 100 Hz) and `ENCODER_TRACKING_ZETA` (default 0.707).
-- `encoder_result.angular_velocity_dps`: angular velocity in deg/s, output by the tracking observer's velocity integrator.
-- `encoder_result.angle_counts`
-- `encoder_result.phase16_deg`
-- `encoder_result.phase15_deg`
-- `encoder_result.coarse_deg`
-- `encoder_result.mag16`: A1 track magnitude, smoothed by a first-order IIR (α = 0.1).
-- `encoder_result.mag15`: A2 track magnitude, smoothed by a first-order IIR (α = 0.1).
-- `encoder_result.status`
+## 架构
 
-Calibration and storage:
+```
+source/
+  app_adc.{h,c}              CTIMER0 触发的 LPADC 4 通道实时采样(8× 硬件平均)
+  app_encoder.{h,c}          编码器算法(无 OS 依赖,可单元测试)
+  app_encoder_runtime.{h,c}  ADC 中断回调、快照发布、命令服务、状态机
+  app_encoder_storage.{h,c}  工厂标定 Flash 存储(末 8KB 扇区,CRC + 双块)
+  app_encoder_defaults.c     上电默认标定参数
+  app_freemaster.{h,c}       FreeMASTER TSA 变量表、命令变量
+  hardware_init.c            OPAMP / PIN / 时钟
+  main.c                     上电流程入口
 
-- `encoder_calibration_source`: `0 default`, `1 NVM`, `2 factory pending`, `3 invalid`.
-- `encoder_storage_crc_ok`: `1` when boot used a valid NVM block.
-- `encoder_cal_flat[0..11]`: A1 track, A2 track, A1 zero phase, A2 zero phase.
-- `encoder_runtime_trim_enabled`
-- `encoder_runtime_trim_active`
-- `encoder_runtime_trim_freeze_reason`
-- `encoder_runtime_trim_delta[0..3]`: A1 `dSin`, A1 `dCos`, A2 `dSin`, A2 `dCos` in ADC counts.
+freemaster/
+  index.html                 Web 监控仪表板(主页 + 诊断页)
+  digital_encoder.pmpx       FreeMASTER 桌面客户端工程文件
+```
 
-ADC health:
+**数据流**:ADC 中断中调用 `encoder_process` 解算角度,写入 `s_realtime_*` volatile 快照;
+主循环 `EncoderApp_Service` 关中断拷出来发布到 `encoder_result`,经 FreeMASTER
+TSA 表暴露给上位机读取。
 
-- `adc_result.a1_sin_raw`
-- `adc_result.a1_cos_raw`
-- `adc_result.a2_sin_raw`
-- `adc_result.a2_cos_raw`
-- `adc_sample_count`
-- `adc_overrun_count`
-- `encoder_sample_rate_hz`
+---
 
-## Status Bits
+## 上手
 
-| Bit | Meaning |
+### 硬件接线
+
+| 信号 | 引脚 |
 | --- | --- |
-| `0x00000001` | Not calibrated |
-| `0x00000002` | 16-cycle track weak |
-| `0x00000004` | 15-cycle track weak |
-| `0x00000008` | ADC rail |
-| `0x00000010` | Track mismatch |
-| `0x00000020` | Calibration failed |
-| `0x00000040` | Holding last valid angle |
-| `0x00000080` | Calibration storage invalid |
-| `0x00000100` | Factory calibration required |
+| A1 SIN | OPAMP0_OUT → P2_15 (ADC0_A2) |
+| A1 COS | OPAMP1_OUT → P2_19 (ADC1_A2) |
+| A2 SIN | TLV9062 外部运放 → P2_6 (ADC1_A3) |
+| A2 COS | TLV9062 外部运放 → P2_7 (ADC0_A7) |
+| FreeMASTER UART | LPUART0 |
 
-## Build and Test
-
-Host tests:
+### 编译烧录
 
 ```powershell
-gcc -std=c99 -Wall -Wextra -Werror -DENCODER_STORAGE_HOST_TEST -I source tests/test_app_encoder_storage.c source/app_encoder.c source/app_encoder_defaults.c source/app_encoder_storage.c -lm -o debug/test_app_encoder_storage.exe
-debug/test_app_encoder_storage.exe
-
-gcc -std=c99 -Wall -Wextra -Werror -I source tests/test_app_encoder_runtime_trim.c source/app_encoder.c source/app_encoder_defaults.c -lm -o debug/test_app_encoder_runtime_trim.exe
-debug/test_app_encoder_runtime_trim.exe
+C:\Keil_v5\UV4\uVision.com -b ind_encoder.uvprojx -t ind_encoder -j0
 ```
 
-Keil build:
+用 Keil 烧到 MCXA344 EVK。
 
-```powershell
-C:\Keil_v5\UV4\UV4.exe -b ind_encoder.uvprojx -t ind_encoder
-```
+### 首次工厂标定
 
-Static checks:
+1. 接好感应轨道硬件并上电
+2. 打开 `freemaster/digital_encoder.pmpx`(或 `freemaster/index.html`)连 LPUART0
+3. 主页 → **Factory Cal** 启动
+4. 在约 8 秒采集窗口内**完整旋转一圈以上**
+5. 采集结束时停在目标零位 — 最后一帧自动作为工厂零位
+6. 标定数据写入 Flash 末 8 KB 扇区(掉电不丢)
 
-```powershell
-rg "adc_read\(|delay_ms\(1\)" source
-git diff --check
-```
+### 日常使用
+
+主页实时显示:绝对角度盘 + 多圈计数 + 速度 + 故障告警条。
+
+| 按钮 | 作用 |
+| --- | --- |
+| **Zero Here** | 当前角度记为 RAM 零位(掉电丢失) |
+| **Reset Turns** | 多圈计数器清零 |
+| **Factory Cal** | 重新工厂标定并存 Flash |
+| **MCU Reset** | NVIC 系统复位 |
+
+故障时主页顶部 Alert Ribbon 自动变 amber / red,列出具体故障名(`LOS_TRACK16`、
+`DOS`、`LOT` 等)。
+
+---
+
+## 状态位
+
+| 位 | 名称 | 含义 |
+| --- | --- | --- |
+| `0x0001` | `NOT_CALIBRATED` | 未加载有效标定 |
+| `0x0002` | `TRACK16_WEAK` | 16 周期轨幅值低于下限 |
+| `0x0004` | `TRACK15_WEAK` | 15 周期轨幅值低于下限 |
+| `0x0008` | `ADC_RAIL` | ADC 通道撞导轨 |
+| `0x0010` | `TRACK_MISMATCH` | 16/15 双轨残差超容限 |
+| `0x0020` | `CAL_FAILED` | 标定解算失败 |
+| `0x0040` | `HOLD_LAST` | 保持上一次有效角度 |
+| `0x0080` | `CAL_STORAGE_INVALID` | NVM 块无效 |
+| `0x0100` | `FACTORY_CAL_REQUIRED` | 启动回落到默认值 |

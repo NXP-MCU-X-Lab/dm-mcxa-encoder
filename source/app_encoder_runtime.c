@@ -42,7 +42,6 @@ volatile uint32_t encoder_calibration_source;
 volatile uint32_t encoder_storage_crc_ok;
 volatile uint8_t encoder_runtime_trim_enabled;
 volatile uint8_t encoder_runtime_trim_active;
-volatile uint32_t encoder_runtime_trim_freeze_reason;
 
 static encoder_calibration_t s_factory_calibration;
 static encoder_state_t s_encoder_state;
@@ -87,7 +86,6 @@ static void refresh_runtime_trim_view(void)
 {
     encoder_runtime_trim_enabled = s_runtime_trim.enabled ? 1U : 0U;
     encoder_runtime_trim_active = s_runtime_trim.active ? 1U : 0U;
-    encoder_runtime_trim_freeze_reason = s_runtime_trim.freeze_reason;
     encoder_runtime_trim_delta[0] = s_runtime_trim.a1_center_sin_delta;
     encoder_runtime_trim_delta[1] = s_runtime_trim.a1_center_cos_delta;
     encoder_runtime_trim_delta[2] = s_runtime_trim.a2_center_sin_delta;
@@ -499,6 +497,20 @@ static void service_encoder_commands(void)
         if ((cmd == 1U) && s_factory_calibration.valid && capture_is_idle())
         {
             start_zero_capture();
+        }
+    }
+
+    if (fm_turn_reset_ctrl != 0U)
+    {
+        const uint8_t cmd = fm_turn_reset_ctrl;
+        uint32_t irq_mask;
+
+        fm_turn_reset_ctrl = 0U;
+        if (cmd == 1U)
+        {
+            irq_mask = DisableGlobalIRQ();
+            encoder_state_reset_turn_count(&s_encoder_state);
+            EnableGlobalIRQ(irq_mask);
         }
     }
 

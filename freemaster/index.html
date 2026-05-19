@@ -3,456 +3,677 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>MCXA344 Dual-Track Inductive Encoder Demo</title>
+    <title>MCXA344 · Inductive Encoder Monitor</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@300;400;500;600&family=JetBrains+Mono:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
+        *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
 
         :root {
-            --bg-start: #0f2027;
-            --bg-end: #2c5364;
-            --card-bg: rgba(255, 255, 255, 0.08);
-            --card-border: rgba(255, 255, 255, 0.14);
-            --accent-1: #00ff88;
-            --accent-2: #00ccff;
-            --accent-3: #87CEEB;
-            --danger: #ff6b6b;
-            --warn: #ffcc66;
-            --text-primary: #ffffff;
-            --text-secondary: rgba(255, 255, 255, 0.8);
+            --bg:           #0a0c10;
+            --surface:      rgba(255, 255, 255, 0.025);
+            --surface-hi:   rgba(255, 255, 255, 0.04);
+            --rule:         #1a1f2a;
+            --rule-soft:    #131820;
+
+            --text-primary: #E8EAED;
+            --text-muted:   #6E7681;
+            --text-dim:     #3D4451;
+
+            --amber:        #FFB627;
+            --amber-soft:   rgba(255, 182, 39, 0.12);
+            --green:        #4EE291;
+            --green-soft:   rgba(78, 226, 145, 0.12);
+            --red:          #FF5A5A;
+            --red-soft:     rgba(255, 90, 90, 0.12);
+            --blue:         #5AB4FF;
+
+            --font-mono: 'JetBrains Mono', 'SF Mono', Menlo, Consolas, monospace;
+            --font-sans: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif;
         }
+
+        html, body { height: 100%; }
 
         body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background: radial-gradient(1200px 600px at 80% -50%, rgba(255, 255, 255, 0.08) 0%, rgba(255, 255, 255, 0) 60%), linear-gradient(135deg, var(--bg-start) 0%, var(--bg-end) 100%);
+            font-family: var(--font-sans);
+            background: var(--bg);
             color: var(--text-primary);
             min-height: 100vh;
-            padding: 24px;
+            padding: 28px 28px 48px 28px;
             overflow-x: hidden;
+            font-feature-settings: 'ss01', 'cv11';
+            background-image:
+                radial-gradient(800px 400px at 85% -8%, rgba(255, 182, 39, 0.045), transparent 60%),
+                radial-gradient(800px 600px at 8% 105%, rgba(90, 180, 255, 0.035), transparent 65%);
         }
 
+        /* ===== Header ===== */
         .header {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            max-width: 1100px;
-            margin: 0 auto 26px auto;
-            padding: 12px 16px;
-            border-radius: 14px;
-            background: linear-gradient(180deg, rgba(255,255,255,0.10), rgba(255,255,255,0.06));
-            border: 1px solid var(--card-border);
-            box-shadow: 0 10px 30px rgba(0,0,0,0.25);
-        }
-
-        .nxp-logo {
-            width: 320px;
-            height: auto;
-            margin-bottom: 15px;
-        }
-
-        .header h1 {
-            font-size: 1.6em;
-            letter-spacing: 0.5px;
-            text-shadow: 1px 1px 3px rgba(0,0,0,0.25);
-        }
-
-        .status-indicator {
-            display: inline-block;
-            width: 10px;
-            height: 10px;
-            background: var(--accent-1);
-            border-radius: 50%;
-            margin-right: 8px;
-            animation: pulse 2s infinite;
-            box-shadow: 0 0 0 4px rgba(0, 255, 136, 0.15);
-        }
-
-        .status-indicator.disconnected {
-            background: var(--danger);
-            box-shadow: 0 0 0 4px rgba(255, 107, 107, 0.15);
-        }
-
-        @keyframes pulse {
-            0% { opacity: 1; }
-            50% { opacity: 0.5; }
-            100% { opacity: 1; }
-        }
-
-        .data-grid {
+            max-width: 1180px;
+            margin: 0 auto 22px auto;
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-            gap: 22px;
-            max-width: 1100px;
-            margin: 0 auto;
+            grid-template-columns: auto 1fr auto;
+            align-items: center;
+            gap: 18px;
+            padding: 8px 4px 18px 4px;
+            border-bottom: 1px solid var(--rule);
+        }
+        .brand { display: flex; align-items: center; gap: 14px; }
+        .nxp-logo { width: 64px; height: auto; opacity: 0.95; }
+        .brand-text {
+            display: flex; flex-direction: column; line-height: 1.05;
+        }
+        .brand-eyebrow {
+            font-family: var(--font-mono);
+            font-size: 0.72rem;
+            font-weight: 500;
+            color: var(--text-muted);
+            letter-spacing: 0.22em;
+            text-transform: uppercase;
+        }
+        .brand-title {
+            font-family: var(--font-sans);
+            font-size: 1.18rem;
+            font-weight: 500;
+            letter-spacing: 0.04em;
+            color: var(--text-primary);
+            margin-top: 4px;
+        }
+        .header-meta {
+            display: flex; align-items: center; gap: 18px;
+            font-family: var(--font-mono);
+            font-size: 0.78rem;
+            color: var(--text-muted);
+            letter-spacing: 0.06em;
+        }
+        .header-meta .label { color: var(--text-dim); margin-right: 6px; }
+        .header-meta .clock { color: var(--text-primary); font-variant-numeric: tabular-nums; }
+
+        /* Connection indicator: steady glow, not pulse */
+        .conn { display: inline-flex; align-items: center; gap: 8px; }
+        .conn-dot {
+            width: 8px; height: 8px; border-radius: 50%;
+            background: var(--green);
+            box-shadow: 0 0 0 3px rgba(78, 226, 145, 0.18), 0 0 10px var(--green);
+            transition: background 240ms ease, box-shadow 240ms ease;
+        }
+        .conn-dot.is-down {
+            background: var(--red);
+            box-shadow: 0 0 0 3px rgba(255, 90, 90, 0.18), 0 0 10px var(--red);
+        }
+        .conn-dot.is-pending {
+            background: var(--amber);
+            box-shadow: 0 0 0 3px rgba(255, 182, 39, 0.18), 0 0 10px var(--amber);
+        }
+        .conn-text { color: var(--text-primary); }
+
+        /* ===== Tabs ===== */
+        .tabs {
+            max-width: 1180px;
+            margin: 0 auto 14px auto;
+            display: flex; gap: 0;
+            border-bottom: 1px solid var(--rule);
+        }
+        .tab {
+            background: none; border: none; color: var(--text-muted);
+            font-family: var(--font-mono);
+            font-size: 0.78rem;
+            font-weight: 500;
+            letter-spacing: 0.18em;
+            text-transform: uppercase;
+            padding: 12px 22px;
+            cursor: pointer;
+            position: relative;
+            transition: color 180ms ease;
+        }
+        .tab:hover { color: var(--text-primary); }
+        .tab.active { color: var(--amber); }
+        .tab.active::after {
+            content: '';
+            position: absolute; left: 22px; right: 22px; bottom: -1px;
+            height: 1px; background: var(--amber);
         }
 
-        .data-card {
-            background: var(--card-bg);
-            backdrop-filter: blur(12px);
-            border-radius: 16px;
-            padding: 22px;
-            text-align: center;
-            border: 1px solid var(--card-border);
-            transition: transform 0.2s ease, box-shadow 0.2s ease;
-            box-shadow: 0 8px 22px rgba(0,0,0,0.25);
+        /* ===== Alert ribbon ===== */
+        .alert {
+            max-width: 1180px;
+            margin: 0 auto 22px auto;
+            display: grid;
+            grid-template-columns: auto 1fr auto;
+            align-items: center;
+            gap: 18px;
+            padding: 12px 18px;
+            background: var(--green-soft);
+            border-left: 2px solid var(--green);
+            font-family: var(--font-mono);
+            font-size: 0.82rem;
+            letter-spacing: 0.1em;
+            transition: background 220ms ease, border-color 220ms ease;
         }
-
-        .data-card:hover {
-            transform: translateY(-3px);
-            box-shadow: 0 12px 28px rgba(0,0,0,0.30);
+        .alert.is-warn {
+            background: var(--amber-soft);
+            border-left-color: var(--amber);
         }
-
-        .card-title {
-            font-size: 1.05em;
-            color: var(--accent-3);
-            margin-bottom: 14px;
+        .alert.is-fault {
+            background: var(--red-soft);
+            border-left-color: var(--red);
+        }
+        .alert-icon {
+            width: 8px; height: 8px; border-radius: 50%;
+            background: var(--green);
+            box-shadow: 0 0 8px var(--green);
+        }
+        .alert.is-warn  .alert-icon { background: var(--amber); box-shadow: 0 0 8px var(--amber); }
+        .alert.is-fault .alert-icon { background: var(--red);   box-shadow: 0 0 8px var(--red); }
+        .alert-label {
             font-weight: 600;
             text-transform: uppercase;
-            letter-spacing: 0.6px;
+            letter-spacing: 0.22em;
+            color: var(--green);
+        }
+        .alert.is-warn  .alert-label { color: var(--amber); }
+        .alert.is-fault .alert-label { color: var(--red); }
+        .alert-flags {
+            color: var(--text-primary);
+            font-weight: 400;
+            font-variant-numeric: tabular-nums;
+        }
+        .alert-flags .sep { color: var(--text-dim); padding: 0 8px; }
+        .alert-status {
+            color: var(--text-muted);
+            font-size: 0.75rem;
         }
 
-        .data-value {
-            font-size: 2.3em;
-            font-weight: 700;
-            margin: 14px 0;
-            text-shadow: 1px 1px 3px rgba(0,0,0,0.28);
+        /* ===== Grid + Cards ===== */
+        .grid {
+            max-width: 1180px;
+            margin: 0 auto;
+            display: grid;
+            grid-template-columns: repeat(12, 1fr);
+            gap: 18px;
+        }
+        .card {
+            background: var(--surface);
+            border: 1px solid var(--rule);
+            padding: 22px 22px 20px 22px;
+            position: relative;
+        }
+        /* L-shaped corner registration marks for instrument feel */
+        .card::before, .card::after {
+            content: '';
+            position: absolute;
+            top: -1px;
+            width: 12px; height: 12px;
+            border-color: var(--amber);
+            border-style: solid;
+            opacity: 0.75;
+        }
+        .card::before { left: -1px;  border-width: 1px 0 0 1px; }
+        .card::after  { right: -1px; border-width: 1px 1px 0 0; }
+        .card.span-4  { grid-column: span 4; }
+        .card.span-5  { grid-column: span 5; }
+        .card.span-7  { grid-column: span 7; }
+        .card.span-12 { grid-column: span 12; }
+
+        .card-head {
+            display: flex; align-items: baseline; justify-content: space-between;
+            margin-bottom: 18px;
+            padding-bottom: 10px;
+            border-bottom: 1px solid var(--rule-soft);
+        }
+        .card-title {
+            font-family: var(--font-mono);
+            font-size: 0.74rem;
+            font-weight: 500;
+            color: var(--text-muted);
+            letter-spacing: 0.22em;
+            text-transform: uppercase;
+        }
+        .card-unit {
+            font-family: var(--font-mono);
+            font-size: 0.72rem;
+            color: var(--text-dim);
+            letter-spacing: 0.16em;
+            text-transform: uppercase;
         }
 
-        .data-unit {
-            font-size: 0.92em;
-            color: var(--text-secondary);
+        /* Big numeric display */
+        .data-display {
+            display: flex; flex-direction: column; align-items: flex-start;
+            gap: 4px;
+        }
+        .data-primary {
+            font-family: var(--font-mono);
+            font-size: 3.2rem;
+            font-weight: 600;
+            line-height: 1.0;
+            color: var(--amber);
+            font-variant-numeric: tabular-nums;
+            letter-spacing: -0.01em;
+        }
+        .data-primary.neutral { color: var(--text-primary); }
+        .data-secondary {
+            font-family: var(--font-mono);
+            font-size: 1.1rem;
+            font-weight: 400;
+            color: var(--text-muted);
+            font-variant-numeric: tabular-nums;
+            letter-spacing: 0;
+            margin-top: 4px;
+        }
+        .data-tag {
+            font-family: var(--font-mono);
+            font-size: 0.68rem;
+            color: var(--text-dim);
+            letter-spacing: 0.18em;
+            text-transform: uppercase;
+        }
+        .data-row {
+            display: flex; align-items: baseline; justify-content: space-between;
+            padding: 8px 0;
+            border-bottom: 1px dashed var(--rule-soft);
+            font-family: var(--font-mono);
+            font-size: 0.86rem;
+        }
+        .data-row:last-child { border-bottom: none; }
+        .data-row .label { color: var(--text-muted); letter-spacing: 0.06em; }
+        .data-row .value {
+            color: var(--text-primary);
+            font-variant-numeric: tabular-nums;
         }
 
-        .kv-row {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding: 4px 0;
-            font-size: 0.95em;
+        /* Angle dial */
+        .dial-wrap { display: flex; align-items: center; gap: 24px; margin-top: 8px; }
+        .dial {
+            position: relative;
+            width: 200px; height: 200px;
+            flex-shrink: 0;
         }
-        .kv-row .kv-label { color: var(--text-secondary); }
-        .kv-row .kv-value { font-family: 'Consolas', monospace; }
-
-        .progress-container {
-            margin-top: 14px;
+        .dial-ring {
+            position: absolute; inset: 0;
+            border: 1px solid var(--rule);
+            border-radius: 50%;
+            background:
+                radial-gradient(closest-side, rgba(255, 182, 39, 0.05), transparent 70%);
         }
+        .dial-tick {
+            position: absolute;
+            left: 50%; top: 0;
+            width: 1px; height: 8px;
+            background: var(--text-dim);
+            transform-origin: 50% 100px;
+        }
+        .dial-tick.major { background: var(--text-muted); height: 12px; width: 1px; }
+        .dial-needle {
+            position: absolute;
+            left: 50%; top: 50%;
+            width: 2px; height: 86px;
+            background: var(--amber);
+            transform-origin: 50% 100%;
+            transform: translate(-50%, -100%) rotate(0deg);
+            transition: transform 90ms cubic-bezier(.4, 0, .2, 1);
+            box-shadow: 0 0 6px var(--amber);
+        }
+        .dial-hub {
+            position: absolute;
+            left: 50%; top: 50%;
+            width: 10px; height: 10px; border-radius: 50%;
+            background: var(--bg);
+            border: 1px solid var(--amber);
+            transform: translate(-50%, -50%);
+        }
+        .dial-cardinal {
+            position: absolute;
+            font-family: var(--font-mono);
+            font-size: 0.66rem;
+            color: var(--text-dim);
+            letter-spacing: 0.1em;
+        }
+        .dial-cardinal.n { top: -16px;    left: 50%; transform: translateX(-50%); }
+        .dial-cardinal.e { top: 50%;      right: -22px; transform: translateY(-50%); }
+        .dial-cardinal.s { bottom: -16px; left: 50%; transform: translateX(-50%); }
+        .dial-cardinal.w { top: 50%;      left: -22px; transform: translateY(-50%); }
 
-        .progress-bar {
-            width: 100%;
+        .dial-detail { flex: 1; display: flex; flex-direction: column; gap: 14px; }
+
+        /* Velocity bar — horizontal magnitude indicator */
+        .vbar {
+            position: relative;
             height: 8px;
-            background: rgba(255, 255, 255, 0.2);
-            border-radius: 4px;
+            margin: 18px 0 6px 0;
+            background:
+                linear-gradient(90deg, var(--rule-soft), var(--rule-soft));
+            border: 1px solid var(--rule);
+        }
+        .vbar-fill {
+            position: absolute;
+            top: 0; bottom: 0;
+            left: 50%;
+            background: var(--amber);
+            box-shadow: 0 0 6px var(--amber);
+            transition: width 160ms cubic-bezier(.4, 0, .2, 1), left 160ms cubic-bezier(.4, 0, .2, 1);
+            width: 0;
+        }
+        .vbar-zero {
+            position: absolute;
+            top: -2px; bottom: -2px;
+            left: 50%;
+            width: 1px;
+            background: var(--text-muted);
+        }
+        .vbar-scale {
+            display: flex; justify-content: space-between;
+            font-family: var(--font-mono);
+            font-size: 0.66rem;
+            color: var(--text-dim);
+            letter-spacing: 0.08em;
+            margin-top: 4px;
+        }
+
+        /* Buttons */
+        .btn-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+        .btn {
+            font-family: var(--font-mono);
+            font-size: 0.78rem;
+            font-weight: 500;
+            letter-spacing: 0.14em;
+            text-transform: uppercase;
+            color: var(--text-primary);
+            background: transparent;
+            border: 1px solid var(--rule);
+            padding: 11px 14px;
+            cursor: pointer;
+            transition: border-color 160ms ease, color 160ms ease, background 160ms ease;
+        }
+        .btn:hover {
+            border-color: var(--amber);
+            color: var(--amber);
+        }
+        .btn:active { background: var(--amber-soft); }
+        .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+        .btn.danger:hover { border-color: var(--red); color: var(--red); }
+
+        .btn-status {
+            font-family: var(--font-mono);
+            font-size: 0.7rem;
+            letter-spacing: 0.18em;
+            text-transform: uppercase;
+            color: var(--text-dim);
+            margin-top: 8px;
+            text-align: right;
+        }
+        .btn-status.is-running { color: var(--blue); }
+        .btn-status.is-done    { color: var(--green); }
+        .btn-status.is-fail    { color: var(--red); }
+
+        /* Progress bar */
+        .progress {
+            height: 4px;
+            background: var(--rule-soft);
+            margin-top: 10px;
+            position: relative;
             overflow: hidden;
         }
-
         .progress-fill {
-            height: 100%;
-            background: linear-gradient(90deg, var(--accent-1), var(--accent-2));
-            border-radius: 4px;
-            transition: width 0.2s ease;
-            width: 0%;
+            position: absolute;
+            top: 0; bottom: 0; left: 0;
+            width: 0;
+            background: var(--amber);
+            transition: width 180ms cubic-bezier(.4, 0, .2, 1);
         }
-
         .progress-text {
-            font-size: 0.82em;
+            font-family: var(--font-mono);
+            font-size: 0.7rem;
+            color: var(--text-muted);
             margin-top: 6px;
-            color: var(--text-secondary);
+            letter-spacing: 0.08em;
         }
 
-        .angle-visual {
-            position: relative;
-            width: 260px;
-            height: 260px;
-            margin: 18px auto 12px auto;
-            border: 2px solid rgba(255, 255, 255, 0.28);
-            border-radius: 50%;
-            background: radial-gradient(closest-side, rgba(255,255,255,0.06), rgba(255,255,255,0.02) 60%, transparent 70%);
-            box-shadow: inset 0 0 35px rgba(0,0,0,0.35);
+        /* Tab panel transition */
+        .panel { display: none; }
+        .panel.active {
+            display: block;
+            animation: fadeUp 240ms cubic-bezier(.4, 0, .2, 1);
+        }
+        @keyframes fadeUp {
+            from { opacity: 0; transform: translateY(4px); }
+            to   { opacity: 1; transform: translateY(0); }
         }
 
-        .angle-pointer {
-            position: absolute;
-            top: 50%;
-            left: 50%;
-            width: 3px;
-            height: 110px;
-            background: var(--danger);
-            transform-origin: bottom center;
-            transform: translate(-50%, -100%) rotate(0deg);
-            transition: transform 0.08s ease;
-            border-radius: 1px;
-            box-shadow: 0 0 10px rgba(255, 107, 107, 0.4);
+        /* Status badge styles */
+        .badge {
+            font-family: var(--font-mono);
+            font-size: 0.7rem;
+            letter-spacing: 0.16em;
+            text-transform: uppercase;
+            padding: 4px 10px;
+            border: 1px solid var(--rule);
+            color: var(--text-muted);
         }
+        .badge.is-ok    { color: var(--green); border-color: var(--green); }
+        .badge.is-warn  { color: var(--amber); border-color: var(--amber); }
+        .badge.is-fail  { color: var(--red);   border-color: var(--red); }
 
-        .angle-center {
-            position: absolute;
-            top: 50%;
-            left: 50%;
-            width: 12px;
-            height: 12px;
-            background: var(--danger);
-            border-radius: 50%;
-            transform: translate(-50%, -50%);
-            box-shadow: 0 0 10px rgba(255, 107, 107, 0.6);
-        }
-
-        .angle-markers {
-            position: absolute;
-            width: 100%;
-            height: 100%;
-        }
-
-        .angle-marker {
-            position: absolute;
-            width: 2px;
-            height: 12px;
-            background: rgba(255, 255, 255, 0.5);
-            top: 0;
-            left: 50%;
-            transform-origin: 50% 130px;
-        }
-        .angle-marker--minor {
-            width: 1px;
-            height: 8px;
-            background: rgba(255, 255, 255, 0.35);
-            transform-origin: 50% 130px;
-        }
-
-        .footer {
-            text-align: center;
-            margin-top: 26px;
-            font-size: 0.9em;
-            color: var(--text-secondary);
-        }
-
-        .error-message {
-            color: var(--danger);
-            font-size: 0.85em;
+        .error-msg {
+            color: var(--red);
+            font-family: var(--font-mono);
+            font-size: 0.75rem;
             margin-top: 10px;
+            min-height: 1em;
         }
 
-        .action-btn {
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            padding: 10px 16px;
-            border: 1px solid var(--card-border);
-            border-radius: 8px;
-            color: var(--text-primary);
-            background: linear-gradient(180deg, rgba(255,255,255,0.1), rgba(255,255,255,0.05));
-            cursor: pointer;
-            transition: transform 0.1s ease, box-shadow 0.2s ease;
-            box-shadow: 0 6px 16px rgba(0,0,0,0.25);
-            user-select: none;
+        /* Subtle grain overlay */
+        body::after {
+            content: '';
+            position: fixed; inset: 0;
+            pointer-events: none;
+            background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 0.06 0'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
+            opacity: 0.5;
+            mix-blend-mode: overlay;
+            z-index: 1000;
         }
-        .action-btn:hover { transform: translateY(-1px); box-shadow: 0 8px 20px rgba(0,0,0,0.28); }
-        .action-btn:active { transform: translateY(0); }
-        .action-btn:disabled { opacity: 0.6; cursor: not-allowed; }
 
-        .status-badge {
-            display: inline-block;
-            padding: 6px 10px;
-            border-radius: 999px;
-            font-size: 0.82em;
-            margin-left: 12px;
-            border: 1px solid var(--card-border);
+        @media (max-width: 900px) {
+            .card.span-4, .card.span-5, .card.span-7 { grid-column: span 12; }
+            .dial-wrap { flex-direction: column; align-items: stretch; }
         }
-        .status-idle    { background: rgba(255,255,255,0.06); color: var(--text-secondary); }
-        .status-running { background: rgba(0, 204, 255, 0.18); color: var(--text-primary); }
-        .status-done    { background: rgba(0, 255, 136, 0.18); color: var(--text-primary); }
-        .status-warn    { background: rgba(255, 204, 102, 0.20); color: var(--text-primary); }
-        .status-fail    { background: rgba(255, 107, 107, 0.22); color: var(--text-primary); }
-
-        .tab-bar {
-            display: flex;
-            gap: 8px;
-            max-width: 1100px;
-            margin: 0 auto 18px auto;
-            padding: 0 4px;
-        }
-        .tab-btn {
-            flex: 0 0 auto;
-            padding: 10px 22px;
-            border: 1px solid var(--card-border);
-            border-radius: 10px;
-            background: rgba(255,255,255,0.05);
-            color: var(--text-secondary);
-            font-size: 0.95em;
-            font-weight: 600;
-            letter-spacing: 0.5px;
-            cursor: pointer;
-            transition: background 0.2s ease, color 0.2s ease;
-        }
-        .tab-btn:hover { background: rgba(255,255,255,0.10); color: var(--text-primary); }
-        .tab-btn.active {
-            background: rgba(0, 204, 255, 0.18);
-            color: var(--text-primary);
-            border-color: rgba(0, 204, 255, 0.45);
-        }
-        .tab-panel { display: none; }
-        .tab-panel.active { display: block; }
     </style>
 </head>
 <body>
-    <div class="header">
-        <img class="nxp-logo" src="nxp-logo.png" alt="NXP Logo">
-        <h1><span class="status-indicator" id="status-led"></span>NXP MCXA344 Dual-Track Inductive Encoder</h1>
+    <header class="header">
+        <div class="brand">
+            <img class="nxp-logo" src="nxp-logo.png" alt="NXP">
+            <div class="brand-text">
+                <span class="brand-eyebrow">MCXA344 · Dual-Track Inductive Encoder</span>
+                <span class="brand-title">Encoder Monitor</span>
+            </div>
+        </div>
+        <div></div>
+        <div class="header-meta">
+            <span><span class="label">RPCS</span><span id="rpcs-addr">--</span></span>
+            <span class="conn">
+                <span class="conn-dot is-down" id="conn-dot"></span>
+                <span class="conn-text" id="conn-text">OFFLINE</span>
+            </span>
+            <span><span class="label">T</span><span class="clock" id="clock">--:--:--</span></span>
+        </div>
+    </header>
+
+    <nav class="tabs">
+        <button class="tab active" data-tab="demo">Monitor</button>
+        <button class="tab" data-tab="debug">Diagnostics</button>
+    </nav>
+
+    <!-- Alert ribbon — visible on both tabs -->
+    <div class="alert" id="alert">
+        <span class="alert-icon" id="alert-icon"></span>
+        <div>
+            <span class="alert-label" id="alert-label">SYSTEM NOMINAL</span>
+            <span class="alert-flags" id="alert-flags"></span>
+        </div>
+        <span class="alert-status" id="alert-status">status 0x00000000</span>
     </div>
 
-    <div class="tab-bar">
-        <button class="tab-btn active" data-tab="demo">Demo</button>
-        <button class="tab-btn" data-tab="debug">Debug</button>
-    </div>
+    <!-- ===== MONITOR (main) ===== -->
+    <div class="panel active" data-tab="demo">
+    <div class="grid">
 
-    <div class="tab-panel active" data-tab="demo">
-    <div class="data-grid">
-
-        <!-- Current Angle -->
-        <div class="data-card">
-            <div class="card-title">Current Angle</div>
-            <div class="angle-visual">
-                <div class="angle-markers">
-                    <div class="angle-marker" style="transform: translateX(-50%) rotate(0deg);"></div>
-                    <div class="angle-marker" style="transform: translateX(-50%) rotate(30deg);"></div>
-                    <div class="angle-marker" style="transform: translateX(-50%) rotate(60deg);"></div>
-                    <div class="angle-marker" style="transform: translateX(-50%) rotate(90deg);"></div>
-                    <div class="angle-marker" style="transform: translateX(-50%) rotate(120deg);"></div>
-                    <div class="angle-marker" style="transform: translateX(-50%) rotate(150deg);"></div>
-                    <div class="angle-marker" style="transform: translateX(-50%) rotate(180deg);"></div>
-                    <div class="angle-marker" style="transform: translateX(-50%) rotate(210deg);"></div>
-                    <div class="angle-marker" style="transform: translateX(-50%) rotate(240deg);"></div>
-                    <div class="angle-marker" style="transform: translateX(-50%) rotate(270deg);"></div>
-                    <div class="angle-marker" style="transform: translateX(-50%) rotate(300deg);"></div>
-                    <div class="angle-marker" style="transform: translateX(-50%) rotate(330deg);"></div>
-                    <div class="angle-marker angle-marker--minor" style="transform: translateX(-50%) rotate(15deg);"></div>
-                    <div class="angle-marker angle-marker--minor" style="transform: translateX(-50%) rotate(45deg);"></div>
-                    <div class="angle-marker angle-marker--minor" style="transform: translateX(-50%) rotate(75deg);"></div>
-                    <div class="angle-marker angle-marker--minor" style="transform: translateX(-50%) rotate(105deg);"></div>
-                    <div class="angle-marker angle-marker--minor" style="transform: translateX(-50%) rotate(135deg);"></div>
-                    <div class="angle-marker angle-marker--minor" style="transform: translateX(-50%) rotate(165deg);"></div>
-                    <div class="angle-marker angle-marker--minor" style="transform: translateX(-50%) rotate(195deg);"></div>
-                    <div class="angle-marker angle-marker--minor" style="transform: translateX(-50%) rotate(225deg);"></div>
-                    <div class="angle-marker angle-marker--minor" style="transform: translateX(-50%) rotate(255deg);"></div>
-                    <div class="angle-marker angle-marker--minor" style="transform: translateX(-50%) rotate(285deg);"></div>
-                    <div class="angle-marker angle-marker--minor" style="transform: translateX(-50%) rotate(315deg);"></div>
-                    <div class="angle-marker angle-marker--minor" style="transform: translateX(-50%) rotate(345deg);"></div>
+        <!-- Position -->
+        <section class="card span-7">
+            <div class="card-head">
+                <span class="card-title">Position · Absolute Angle</span>
+                <span class="card-unit">deg · counts</span>
+            </div>
+            <div class="dial-wrap">
+                <div class="dial">
+                    <div class="dial-ring"></div>
+                    <div id="dial-ticks"></div>
+                    <span class="dial-cardinal n">0</span>
+                    <span class="dial-cardinal e">90</span>
+                    <span class="dial-cardinal s">180</span>
+                    <span class="dial-cardinal w">270</span>
+                    <div class="dial-needle" id="dial-needle"></div>
+                    <div class="dial-hub"></div>
                 </div>
-                <div class="angle-pointer" id="angle-pointer"></div>
-                <div class="angle-center"></div>
+                <div class="dial-detail">
+                    <div class="data-display">
+                        <div class="data-primary" id="angle-deg">---.----</div>
+                        <span class="data-tag">degrees · 0 – 360</span>
+                    </div>
+                    <div class="data-row"><span class="label">counts</span><span class="value" id="angle-counts">---</span></div>
+                    <div class="data-row"><span class="label">multi-turn</span><span class="value" id="multi-turn-deg">---</span></div>
+                    <div class="data-row"><span class="label">turn count</span><span class="value" id="turn-count">---</span></div>
+                </div>
             </div>
-            <div class="data-value" id="degrees-value">--°</div>
-            <div class="data-unit">Degrees (0 - 360)</div>
-            <div class="data-value" style="font-size:1.4em" id="counts-value">--</div>
-            <div class="data-unit">Counts (0 - 65535)</div>
-            <div class="error-message" id="angle-error"></div>
-        </div>
+            <div class="error-msg" id="angle-error"></div>
+        </section>
 
-        <!-- Encoder Control -->
-        <div class="data-card">
-            <div class="card-title">Encoder Control</div>
-            <div>
-                <button id="zero-here-button" class="action-btn">Zero Here</button>
-                <span id="zero-status" class="status-badge status-idle">Idle</span>
+        <!-- Velocity -->
+        <section class="card span-5">
+            <div class="card-head">
+                <span class="card-title">Velocity · Tracking Observer</span>
+                <span class="card-unit">deg/s · rpm</span>
             </div>
-            <div style="margin-top:14px">
-                <button id="reset-button" class="action-btn">MCU Reset</button>
+            <div class="data-display">
+                <div class="data-primary" id="speed-dps">--.--</div>
+                <span class="data-tag">deg / s</span>
             </div>
-            <div style="margin-top:18px">
-                <button id="factory-cal-button" class="action-btn">Factory Calibration</button>
-                <span id="factory-cal-status" class="status-badge status-idle">Idle</span>
+            <div class="vbar">
+                <div class="vbar-zero"></div>
+                <div class="vbar-fill" id="vbar-fill"></div>
             </div>
-            <div class="progress-container">
-                <div class="progress-bar"><div class="progress-fill" id="factory-cal-progress-fill"></div></div>
-                <div class="progress-text" id="factory-cal-progress-text">0%</div>
+            <div class="vbar-scale">
+                <span>-1080</span><span>0</span><span>+1080 dps</span>
             </div>
-            <div class="error-message" id="zero-error"></div>
-        </div>
+            <div style="margin-top: 18px;">
+                <div class="data-row"><span class="label">rpm</span><span class="value" id="speed-rpm">--.--</span></div>
+                <div class="data-row"><span class="label">direction</span><span class="value" id="speed-dir">--</span></div>
+            </div>
+            <div class="error-msg" id="speed-error"></div>
+        </section>
+
+        <!-- Control -->
+        <section class="card span-12">
+            <div class="card-head">
+                <span class="card-title">Encoder Control</span>
+                <span class="card-unit">service commands</span>
+            </div>
+            <div class="btn-row" style="grid-template-columns: repeat(4, 1fr);">
+                <div>
+                    <button class="btn" id="btn-zero">Zero Here</button>
+                    <div class="btn-status" id="zero-status">Idle</div>
+                </div>
+                <div>
+                    <button class="btn" id="btn-turn-reset">Reset Turns</button>
+                    <div class="btn-status" id="turn-reset-status">--</div>
+                </div>
+                <div>
+                    <button class="btn" id="btn-factory">Factory Cal</button>
+                    <div class="btn-status" id="factory-status">Idle</div>
+                    <div class="progress"><div class="progress-fill" id="factory-fill"></div></div>
+                    <div class="progress-text" id="factory-text">0%</div>
+                </div>
+                <div>
+                    <button class="btn danger" id="btn-reset">MCU Reset</button>
+                    <div class="btn-status" id="reset-status">--</div>
+                </div>
+            </div>
+            <div class="error-msg" id="control-error"></div>
+        </section>
 
     </div>
     </div>
 
-    <div class="tab-panel" data-tab="debug">
-    <div class="data-grid">
+    <!-- ===== DIAGNOSTICS ===== -->
+    <div class="panel" data-tab="debug">
+    <div class="grid">
 
-        <!-- Track Status -->
-        <div class="data-card">
-            <div class="card-title">Track Status</div>
-            <div class="kv-row"><span class="kv-label">Encoder valid</span><span id="enc-valid-badge" class="status-badge status-idle">Unknown</span></div>
-            <div class="kv-row"><span class="kv-label">Coarse angle</span><span class="kv-value" id="coarse-value">--°</span></div>
-            <div class="kv-row"><span class="kv-label">phase16</span><span class="kv-value" id="phase16-value">--°</span></div>
-            <div class="kv-row"><span class="kv-label">phase15</span><span class="kv-value" id="phase15-value">--°</span></div>
-            <div class="kv-row"><span class="kv-label">mag16</span><span class="kv-value" id="mag16-value">--</span></div>
-            <div class="kv-row"><span class="kv-label">mag15</span><span class="kv-value" id="mag15-value">--</span></div>
-            <div class="kv-row"><span class="kv-label">status</span><span class="kv-value" id="enc-status-value">--</span></div>
-            <div class="kv-row"><span class="kv-label">cal source</span><span class="kv-value" id="cal-source-value">--</span></div>
-            <div class="kv-row"><span class="kv-label">storage crc</span><span class="kv-value" id="storage-crc-value">--</span></div>
-            <div class="kv-row"><span class="kv-label">sample rate</span><span class="kv-value" id="sample-rate-value">--</span></div>
-            <div class="kv-row"><span class="kv-label">runtime trim</span><span class="kv-value" id="trim-state-value">--</span></div>
-            <div class="kv-row"><span class="kv-label">trim reason</span><span class="kv-value" id="trim-reason-value">--</span></div>
-            <div class="kv-row"><span class="kv-label">trim A1 dS / dC</span><span class="kv-value" id="trim-a1-value">--</span></div>
-            <div class="kv-row"><span class="kv-label">trim A2 dS / dC</span><span class="kv-value" id="trim-a2-value">--</span></div>
-            <div id="enc-status-flags" style="margin-top:8px; font-size:0.85em; color:var(--warn); min-height:1em"></div>
-            <div class="error-message" id="track-error"></div>
-        </div>
+        <section class="card span-7">
+            <div class="card-head">
+                <span class="card-title">Encoder Status</span>
+                <span class="badge" id="enc-valid-badge">--</span>
+            </div>
+            <div class="data-row"><span class="label">status</span><span class="value" id="enc-status">0x00000000</span></div>
+            <div class="data-row"><span class="label">cal source</span><span class="value" id="cal-source">--</span></div>
+            <div class="data-row"><span class="label">mag16 (mean / raw)</span><span class="value" id="mag16">--</span></div>
+            <div class="data-row"><span class="label">mag15 (mean / raw)</span><span class="value" id="mag15">--</span></div>
+            <div class="data-row"><span class="label">runtime trim</span><span class="value" id="trim-state">--</span></div>
+            <div class="data-row"><span class="label">trim A1  dS / dC</span><span class="value" id="trim-a1">--</span></div>
+            <div class="data-row"><span class="label">trim A2  dS / dC</span><span class="value" id="trim-a2">--</span></div>
+            <div class="error-msg" id="diag-error"></div>
+        </section>
 
-        <!-- A1 Track Calibration (16 cycles) -->
-        <div class="data-card">
-            <div class="card-title">A1 Track (16 cycles)</div>
-            <div class="kv-row"><span class="kv-label">center_sin</span><span class="kv-value" id="a1-cs">--</span></div>
-            <div class="kv-row"><span class="kv-label">center_cos</span><span class="kv-value" id="a1-cc">--</span></div>
-            <div class="kv-row"><span class="kv-label">T[0,0]</span><span class="kv-value" id="a1-t00">--</span></div>
-            <div class="kv-row"><span class="kv-label">T[1,0]</span><span class="kv-value" id="a1-t10">--</span></div>
-            <div class="kv-row"><span class="kv-label">T[1,1]</span><span class="kv-value" id="a1-t11">--</span></div>
-            <div class="kv-row"><span class="kv-label">zero phase</span><span class="kv-value" id="a1-zero">--°</span></div>
-            <div class="error-message" id="a1-error"></div>
-        </div>
-
-        <!-- A2 Track Calibration (15 cycles) -->
-        <div class="data-card">
-            <div class="card-title">A2 Track (15 cycles)</div>
-            <div class="kv-row"><span class="kv-label">center_sin</span><span class="kv-value" id="a2-cs">--</span></div>
-            <div class="kv-row"><span class="kv-label">center_cos</span><span class="kv-value" id="a2-cc">--</span></div>
-            <div class="kv-row"><span class="kv-label">T[0,0]</span><span class="kv-value" id="a2-t00">--</span></div>
-            <div class="kv-row"><span class="kv-label">T[1,0]</span><span class="kv-value" id="a2-t10">--</span></div>
-            <div class="kv-row"><span class="kv-label">T[1,1]</span><span class="kv-value" id="a2-t11">--</span></div>
-            <div class="kv-row"><span class="kv-label">zero phase</span><span class="kv-value" id="a2-zero">--°</span></div>
-            <div class="error-message" id="a2-error"></div>
-        </div>
+        <section class="card span-5">
+            <div class="card-head">
+                <span class="card-title">ADC Health</span>
+                <span class="card-unit">10 kHz · 8× hw avg</span>
+            </div>
+            <div class="data-row"><span class="label">samples</span><span class="value" id="adc-samples">--</span></div>
+            <div class="data-row"><span class="label">overruns</span><span class="value" id="adc-overruns">--</span></div>
+            <div class="error-msg" id="adc-error"></div>
+        </section>
 
     </div>
-    </div>
-
-    <div class="footer">
-        <div>MCXA344 Dual-Track Inductive Encoder | Last Update: <span id="update-time">--</span></div>
-        <div>Connection Status: <span id="connection-status">Disconnected</span></div>
     </div>
 
     <script src="simple-jsonrpc-js.js"></script>
     <script src="freemaster-client.js"></script>
-
     <script>
-        /* encoder status bit definitions (matches ENCODER_STATUS_* in app_encoder.h) */
+        /* ENCODER_STATUS_* bit definitions — keep in sync with app_encoder.h */
         const STATUS_BITS = [
-            { bit: 1 << 0, name: 'NOT_CALIBRATED' },
-            { bit: 1 << 1, name: 'TRACK16_WEAK'   },
-            { bit: 1 << 2, name: 'TRACK15_WEAK'   },
-            { bit: 1 << 3, name: 'ADC_RAIL'       },
-            { bit: 1 << 4, name: 'TRACK_MISMATCH' },
-            { bit: 1 << 5, name: 'CAL_FAILED'     },
-            { bit: 1 << 6, name: 'HOLD_LAST'      },
+            { bit: 1 << 0, name: 'NOT_CALIBRATED'      },
+            { bit: 1 << 1, name: 'TRACK16_WEAK'        },
+            { bit: 1 << 2, name: 'TRACK15_WEAK'        },
+            { bit: 1 << 3, name: 'ADC_RAIL'            },
+            { bit: 1 << 4, name: 'TRACK_MISMATCH'      },
+            { bit: 1 << 5, name: 'CAL_FAILED'          },
+            { bit: 1 << 6, name: 'HOLD_LAST'           },
             { bit: 1 << 7, name: 'CAL_STORAGE_INVALID' },
-            { bit: 1 << 8, name: 'FACTORY_CAL_REQUIRED' },
+            { bit: 1 << 8, name: 'FACTORY_CAL_REQUIRED'},
         ];
+        /* Bits that count as hard faults (anything else is warn) */
+        const FAULT_MASK =
+            (1 << 1) | (1 << 2) | (1 << 3) | (1 << 5) | (1 << 7);
 
+        /* ---------- Generate dial ticks ---------- */
+        (function buildTicks() {
+            const wrap = document.getElementById('dial-ticks');
+            for (let deg = 0; deg < 360; deg += 6) {
+                const tick = document.createElement('div');
+                tick.className = 'dial-tick' + ((deg % 30 === 0) ? ' major' : '');
+                tick.style.transform = `translateX(-50%) rotate(${deg}deg)`;
+                wrap.appendChild(tick);
+            }
+        })();
+
+        /* ---------- PCM connection ---------- */
         let pcm = null;
         let isConnected = false;
-        let demoInterval = null;
-        let debugInterval = null;
+        let demoTimer = null;
+        let debugTimer = null;
         let activeTab = 'demo';
-        let currentAngle = 0;
+        let dialAngle = 0;
 
         function initializePCM() {
             try {
@@ -460,74 +681,55 @@
                 if (typeof FreeMASTER !== "undefined" && FreeMASTER.rpcs_addr) {
                     rpcsAddr = FreeMASTER.rpcs_addr;
                 }
+                document.getElementById('rpcs-addr').textContent = rpcsAddr;
                 pcm = new PCM(rpcsAddr, onSocketConnected, onSocketClose, onSocketError);
-                pcm.OnServerError = onServerError;
-                updateConnectionStatus("Connecting...");
-            } catch (error) {
-                console.error("PCM initialization failed:", error);
-                updateConnectionStatus("Initialization Failed");
+                pcm.OnServerError = (e) => console.error('Server error', e);
+                setConnState('pending', 'CONNECTING');
+            } catch (e) {
+                console.error('PCM init failed:', e);
+                setConnState('down', 'INIT FAILED');
             }
         }
 
         function onSocketConnected() {
             isConnected = true;
-            updateConnectionStatus("Connected");
-            document.getElementById('status-led').classList.remove('disconnected');
+            setConnState('up', 'CONNECTED');
             pcm.EnableEvents(true);
-            startDataUpdate();
+            startPolling();
         }
-
         function onSocketClose() {
             isConnected = false;
-            updateConnectionStatus("Connection Closed");
-            document.getElementById('status-led').classList.add('disconnected');
-            stopDataUpdate();
+            setConnState('down', 'CLOSED');
+            stopPolling();
         }
-
         function onSocketError(err) {
             isConnected = false;
-            console.error("Socket error:", err);
-            updateConnectionStatus("Connection Error");
-            document.getElementById('status-led').classList.add('disconnected');
+            console.error('Socket error', err);
+            setConnState('down', 'ERROR');
+        }
+        function setConnState(state, text) {
+            const dot = document.getElementById('conn-dot');
+            dot.classList.remove('is-down', 'is-pending');
+            if (state === 'down')    dot.classList.add('is-down');
+            if (state === 'pending') dot.classList.add('is-pending');
+            document.getElementById('conn-text').textContent = text;
         }
 
-        function onServerError(err) { console.error("Server error:", err); }
+        /* ---------- Read helpers ---------- */
+        async function readF (name) { return (await pcm.ReadFloatVariable(name, 4)).data; }
+        async function readU8 (name) { return (await pcm.ReadUIntVariable(name, 1)).data; }
+        async function readU32(name) { return (await pcm.ReadUIntVariable(name, 4)).data; }
+        async function readI32(name) { return (await pcm.ReadIntVariable (name, 4)).data; }
 
-        function updateConnectionStatus(status) {
-            document.getElementById('connection-status').textContent = status;
+        function fmtHex32(v) { return '0x' + ((Number(v) >>> 0).toString(16).toUpperCase().padStart(8, '0')); }
+        function shortestRot(from, to) {
+            let d = to - from;
+            while (d >  180) d -= 360;
+            while (d < -180) d += 360;
+            return from + d;
         }
-
-        async function readVariable(varName, varType = 'float', size = 4) {
-            if (!pcm || !isConnected) throw new Error("PCM not connected");
-            let response;
-            switch (varType) {
-                case 'int':   response = await pcm.ReadIntVariable(varName, size);   break;
-                case 'uint':  response = await pcm.ReadUIntVariable(varName, size);  break;
-                case 'float':
-                default:      response = await pcm.ReadFloatVariable(varName, size); break;
-            }
-            return response.data;
-        }
-
-        function getShortestRotation(from, to) {
-            let diff = to - from;
-            while (diff > 180)  diff -= 360;
-            while (diff < -180) diff += 360;
-            return from + diff;
-        }
-
-        function formatHex32(value) {
-            return '0x' + ((Number(value) >>> 0).toString(16).toUpperCase().padStart(8, '0'));
-        }
-
-        function decodeStatusFlags(statusValue) {
-            const v = Number(statusValue) >>> 0;
-            if (v === 0) return '';
-            return STATUS_BITS.filter(b => v & b.bit).map(b => b.name).join(' | ');
-        }
-
-        function calSourceName(value) {
-            switch (Number(value) >>> 0) {
+        function calSourceName(v) {
+            switch (Number(v) >>> 0) {
                 case 0: return 'DEFAULT';
                 case 1: return 'NVM';
                 case 2: return 'FACTORY_PENDING';
@@ -535,248 +737,237 @@
                 default: return 'UNKNOWN';
             }
         }
-
-        function trimReasonName(value) {
-            switch (Number(value) >>> 0) {
-                case 0: return 'NONE';
-                case 1: return 'DISABLED';
-                case 2: return 'NOT_CALIBRATED';
-                case 3: return 'STATUS';
-                case 4: return 'COVERAGE';
-                case 5: return 'MAGNITUDE';
-                default: return 'UNKNOWN';
-            }
-        }
-
-        function factoryCalStateName(value) {
-            switch (Number(value) >>> 0) {
+        function factoryStateName(v) {
+            switch (Number(v) >>> 0) {
                 case 0: return 'Idle';
                 case 1: return 'Running';
                 case 2: return 'Done';
                 case 3: return 'Failed';
-                default: return 'Unknown';
+                default: return '--';
             }
         }
+        function decodeFlags(status) {
+            const v = Number(status) >>> 0;
+            return STATUS_BITS.filter(b => v & b.bit).map(b => b.name);
+        }
 
-        async function updateDemoTab() {
+        /* ---------- Alert ribbon ---------- */
+        function renderAlert(statusRaw) {
+            const status = Number(statusRaw) >>> 0;
+            const flags = decodeFlags(status);
+            const wrap = document.getElementById('alert');
+            const label = document.getElementById('alert-label');
+            const flagsEl = document.getElementById('alert-flags');
+            const statusEl = document.getElementById('alert-status');
+
+            wrap.classList.remove('is-warn', 'is-fault');
+
+            statusEl.textContent = 'status ' + fmtHex32(status);
+
+            if (status === 0) {
+                label.textContent = 'SYSTEM NOMINAL';
+                flagsEl.innerHTML = '';
+                return;
+            }
+            const isFault = (status & FAULT_MASK) !== 0;
+            wrap.classList.add(isFault ? 'is-fault' : 'is-warn');
+            label.textContent = isFault ? 'FAULT' : 'ATTENTION';
+            flagsEl.innerHTML = flags
+                .map(n => `<span>${n}</span>`)
+                .join('<span class="sep">·</span>');
+        }
+
+        /* ---------- Monitor tab ---------- */
+        async function pollMonitor() {
             if (!isConnected) return;
 
-            /* === Current angle (encoder_result.angle_deg + angle_counts) === */
             try {
-                const degrees = await readVariable('encoder_result.angle_deg', 'float', 4);
-                const counts  = await readVariable('encoder_result.angle_counts', 'uint', 4);
+                const deg = await readF('encoder_result.angle_deg');
+                const counts = await readU32('encoder_result.angle_counts');
+                const turns = await readI32('encoder_result.turn_count');
+                const mtDeg = await readF('encoder_result.multi_turn_deg');
 
-                document.getElementById('degrees-value').textContent = degrees.toFixed(3) + '°';
-                document.getElementById('counts-value').textContent  = counts;
+                document.getElementById('angle-deg').textContent = deg.toFixed(4) + '°';
+                document.getElementById('angle-counts').textContent = String(counts);
+                document.getElementById('turn-count').textContent = (Number(turns) >= 0 ? '+' : '') + Number(turns);
+                document.getElementById('multi-turn-deg').textContent = mtDeg.toFixed(2) + '°';
 
-                const targetAngle = getShortestRotation(currentAngle, degrees);
-                currentAngle = targetAngle;
-                document.getElementById('angle-pointer').style.transform =
-                    `translate(-50%, -100%) rotate(${targetAngle}deg)`;
-
+                dialAngle = shortestRot(dialAngle, deg);
+                document.getElementById('dial-needle').style.transform =
+                    `translate(-50%, -100%) rotate(${dialAngle}deg)`;
                 document.getElementById('angle-error').textContent = '';
-            } catch (error) {
-                document.getElementById('angle-error').textContent = 'Read failed: ' + error.message;
+            } catch (e) {
+                document.getElementById('angle-error').textContent = 'angle read failed: ' + e.message;
             }
 
-            /* === Factory calibration service state === */
             try {
-                const state = await readVariable('fm_factory_cal_state', 'uint', 1);
-                const progress = await readVariable('fm_factory_cal_progress', 'uint', 1);
-                const status = await readVariable('fm_factory_cal_status', 'uint', 4);
-                const tag = document.getElementById('factory-cal-status');
+                const dps = await readF('encoder_result.angular_velocity_dps');
+                const rpm = dps / 6.0;
+                document.getElementById('speed-dps').textContent =
+                    (dps >= 0 ? '+' : '') + dps.toFixed(1);
+                document.getElementById('speed-rpm').textContent =
+                    (rpm >= 0 ? '+' : '') + rpm.toFixed(2);
+                document.getElementById('speed-dir').textContent =
+                    Math.abs(dps) < 0.5 ? 'IDLE' : (dps > 0 ? 'CW →' : '← CCW');
 
-                tag.textContent = factoryCalStateName(state);
-                tag.className = 'status-badge ' +
-                    (Number(state) === 1 ? 'status-running' :
-                     Number(state) === 2 ? 'status-done' :
-                     Number(state) === 3 ? 'status-fail' : 'status-idle');
-                document.getElementById('factory-cal-progress-fill').style.width = Number(progress) + '%';
-                document.getElementById('factory-cal-progress-text').textContent =
-                    Number(progress) + '% / ' + formatHex32(status);
-            } catch (error) {
-                document.getElementById('zero-error').textContent = 'Factory cal read failed: ' + error.message;
-            }
-
-            document.getElementById('update-time').textContent = new Date().toLocaleTimeString();
-        }
-
-        async function updateDebugTab() {
-            if (!isConnected) return;
-
-            /* === Track status (encoder_result + fm_encoder_valid + fm_encoder_status) === */
-            try {
-                const coarse   = await readVariable('encoder_result.coarse_deg',   'float', 4);
-                const phase16  = await readVariable('encoder_result.phase16_deg',  'float', 4);
-                const phase15  = await readVariable('encoder_result.phase15_deg',  'float', 4);
-                const mag16    = await readVariable('encoder_result.mag16',        'float', 4);
-                const mag15    = await readVariable('encoder_result.mag15',        'float', 4);
-                const status   = await readVariable('encoder_result.status',       'uint',  4);
-                const valid    = await readVariable('fm_encoder_valid',       'uint',  1);
-                const rateHz   = await readVariable('encoder_sample_rate_hz', 'uint',  4);
-                const calSource = await readVariable('encoder_calibration_source', 'uint', 4);
-                const storageOk = await readVariable('encoder_storage_crc_ok', 'uint', 4);
-                const trimEnabled = await readVariable('encoder_runtime_trim_enabled', 'uint', 1);
-                const trimActive = await readVariable('encoder_runtime_trim_active', 'uint', 1);
-                const trimReason = await readVariable('encoder_runtime_trim_freeze_reason', 'uint', 4);
-                const trimBlob = await pcm.ReadFloatArray('encoder_runtime_trim_delta', 4);
-                const trim = trimBlob.data || [0, 0, 0, 0];
-
-                document.getElementById('coarse-value').textContent   = coarse.toFixed(3) + '°';
-                document.getElementById('phase16-value').textContent  = phase16.toFixed(3) + '°';
-                document.getElementById('phase15-value').textContent  = phase15.toFixed(3) + '°';
-                document.getElementById('mag16-value').textContent    = mag16.toFixed(3);
-                document.getElementById('mag15-value').textContent    = mag15.toFixed(3);
-                document.getElementById('enc-status-value').textContent = formatHex32(status);
-                document.getElementById('cal-source-value').textContent = calSourceName(calSource);
-                document.getElementById('storage-crc-value').textContent = Number(storageOk) === 1 ? 'OK' : 'Invalid';
-                document.getElementById('sample-rate-value').textContent = rateHz + ' Hz';
-                document.getElementById('trim-state-value').textContent =
-                    (Number(trimEnabled) === 1 ? 'Enabled' : 'Disabled') + ' / ' +
-                    (Number(trimActive) === 1 ? 'Active' : 'Idle');
-                document.getElementById('trim-reason-value').textContent = trimReasonName(trimReason);
-                document.getElementById('trim-a1-value').textContent =
-                    trim[0].toFixed(2) + ' / ' + trim[1].toFixed(2);
-                document.getElementById('trim-a2-value').textContent =
-                    trim[2].toFixed(2) + ' / ' + trim[3].toFixed(2);
-
-                const flagsText = decodeStatusFlags(status);
-                document.getElementById('enc-status-flags').textContent = flagsText;
-
-                const validBadge = document.getElementById('enc-valid-badge');
-                if (Number(valid) === 1 && Number(status) === 0) {
-                    validBadge.textContent = 'OK';
-                    validBadge.className = 'status-badge status-done';
-                } else if (Number(valid) === 1) {
-                    validBadge.textContent = 'Warn';
-                    validBadge.className = 'status-badge status-warn';
+                /* Velocity bar — center is 0, full scale ±1080 dps */
+                const clamped = Math.max(-1080, Math.min(1080, dps));
+                const halfPct = (clamped / 1080) * 50;
+                const fill = document.getElementById('vbar-fill');
+                if (halfPct >= 0) {
+                    fill.style.left  = '50%';
+                    fill.style.width = halfPct + '%';
                 } else {
-                    validBadge.textContent = 'Invalid';
-                    validBadge.className = 'status-badge status-fail';
+                    fill.style.left  = (50 + halfPct) + '%';
+                    fill.style.width = (-halfPct) + '%';
                 }
-
-                document.getElementById('track-error').textContent = '';
-            } catch (error) {
-                document.getElementById('track-error').textContent = 'Read failed: ' + error.message;
+                document.getElementById('speed-error').textContent = '';
+            } catch (e) {
+                document.getElementById('speed-error').textContent = 'velocity read failed: ' + e.message;
             }
 
-            /* === Per-track calibration === */
+            /* Status + alert ribbon — read on both tabs */
             try {
-                const blob = await pcm.ReadFloatArray('encoder_cal_flat', 12);
-                const a = blob.data || [];
-                if (a.length < 12) throw new Error('short read (' + a.length + '/12)');
-                fillTrackCal('a1', a, 0);
-                fillTrackCal('a2', a, 5);
-                document.getElementById('a1-zero').textContent = a[10].toFixed(3) + '°';
-                document.getElementById('a2-zero').textContent = a[11].toFixed(3) + '°';
-                document.getElementById('a1-error').textContent = '';
-                document.getElementById('a2-error').textContent = '';
-            } catch (error) {
-                const msg = 'Read failed: ' + (error && error.message ? error.message : 'undefined');
-                document.getElementById('a1-error').textContent = msg;
-                document.getElementById('a2-error').textContent = msg;
-            }
+                const status = await readU32('encoder_result.status');
+                renderAlert(status);
+            } catch (e) { /* swallow; alert stays */ }
 
-            document.getElementById('update-time').textContent = new Date().toLocaleTimeString();
+            /* Factory cal state */
+            try {
+                const fState = await readU8('fm_factory_cal_state');
+                const fProg  = await readU8('fm_factory_cal_progress');
+                const fSt = document.getElementById('factory-status');
+                fSt.textContent = factoryStateName(fState);
+                fSt.className = 'btn-status';
+                if (Number(fState) === 1) fSt.classList.add('is-running');
+                if (Number(fState) === 2) fSt.classList.add('is-done');
+                if (Number(fState) === 3) fSt.classList.add('is-fail');
+                document.getElementById('factory-fill').style.width = Number(fProg) + '%';
+                document.getElementById('factory-text').textContent = Number(fProg) + '%';
+            } catch (e) { /* swallow */ }
         }
 
-        function fillTrackCal(idPrefix, arr, base) {
-            document.getElementById(idPrefix + '-cs').textContent = arr[base + 0].toFixed(3);
-            document.getElementById(idPrefix + '-cc').textContent = arr[base + 1].toFixed(3);
-            document.getElementById(idPrefix + '-t00').textContent = arr[base + 2].toFixed(6);
-            document.getElementById(idPrefix + '-t10').textContent = arr[base + 3].toFixed(6);
-            document.getElementById(idPrefix + '-t11').textContent = arr[base + 4].toFixed(6);
-        }
-
-        function restartIntervals() {
-            if (demoInterval)  { clearInterval(demoInterval);  demoInterval = null; }
-            if (debugInterval) { clearInterval(debugInterval); debugInterval = null; }
+        /* ---------- Diagnostics tab ---------- */
+        async function pollDiag() {
             if (!isConnected) return;
-            if (activeTab === 'demo') {
-                demoInterval = setInterval(updateDemoTab, 100);
-                updateDemoTab();
-            } else {
-                debugInterval = setInterval(updateDebugTab, 500);
-                updateDebugTab();
+            try {
+                const mag16   = await readF('encoder_result.mag16');
+                const mag15   = await readF('encoder_result.mag15');
+                const mag16Rw = await readF('encoder_result.mag16_raw');
+                const mag15Rw = await readF('encoder_result.mag15_raw');
+                const status  = await readU32('encoder_result.status');
+                const valid   = await readU8('fm_encoder_valid');
+                const calSrc  = await readU32('encoder_calibration_source');
+                const trimEn  = await readU8('encoder_runtime_trim_enabled');
+                const trimAc  = await readU8('encoder_runtime_trim_active');
+                const trimArr = (await pcm.ReadFloatArray('encoder_runtime_trim_delta', 4)).data || [0,0,0,0];
+
+                document.getElementById('mag16').textContent = mag16.toFixed(3) + ' / ' + mag16Rw.toFixed(3);
+                document.getElementById('mag15').textContent = mag15.toFixed(3) + ' / ' + mag15Rw.toFixed(3);
+                document.getElementById('enc-status').textContent = fmtHex32(status);
+                document.getElementById('cal-source').textContent = calSourceName(calSrc);
+                document.getElementById('trim-state').textContent =
+                    (Number(trimEn) === 1 ? 'Enabled' : 'Disabled') + '  ·  ' +
+                    (Number(trimAc) === 1 ? 'Active' : 'Idle');
+                document.getElementById('trim-a1').textContent = trimArr[0].toFixed(2) + ' / ' + trimArr[1].toFixed(2);
+                document.getElementById('trim-a2').textContent = trimArr[2].toFixed(2) + ' / ' + trimArr[3].toFixed(2);
+
+                const badge = document.getElementById('enc-valid-badge');
+                badge.classList.remove('is-ok', 'is-warn', 'is-fail');
+                if (Number(valid) === 1 && Number(status) === 0) {
+                    badge.textContent = 'OK'; badge.classList.add('is-ok');
+                } else if (Number(valid) === 1) {
+                    badge.textContent = 'Warn'; badge.classList.add('is-warn');
+                } else {
+                    badge.textContent = 'Invalid'; badge.classList.add('is-fail');
+                }
+                renderAlert(status);
+                document.getElementById('diag-error').textContent = '';
+            } catch (e) {
+                document.getElementById('diag-error').textContent = 'read failed: ' + e.message;
             }
+
+            try {
+                const samples = await readU32('adc_sample_count');
+                const overruns = await readU32('adc_overrun_count');
+                document.getElementById('adc-samples').textContent = String(samples);
+                document.getElementById('adc-overruns').textContent = String(overruns);
+                document.getElementById('adc-error').textContent = '';
+            } catch (e) {
+                document.getElementById('adc-error').textContent = 'adc read failed: ' + e.message;
+            }
+        }
+
+        /* ---------- Poll scheduling ---------- */
+        function startPolling() {
+            stopPolling();
+            if (activeTab === 'demo') {
+                demoTimer = setInterval(pollMonitor, 100);
+                pollMonitor();
+            } else {
+                debugTimer = setInterval(pollDiag, 400);
+                pollDiag();
+            }
+        }
+        function stopPolling() {
+            if (demoTimer)  { clearInterval(demoTimer);  demoTimer = null; }
+            if (debugTimer) { clearInterval(debugTimer); debugTimer = null; }
         }
 
         function setActiveTab(name) {
             activeTab = name;
-            document.querySelectorAll('.tab-btn').forEach(b =>
-                b.classList.toggle('active', b.dataset.tab === name));
-            document.querySelectorAll('.tab-panel').forEach(p =>
+            document.querySelectorAll('.tab').forEach(t =>
+                t.classList.toggle('active', t.dataset.tab === name));
+            document.querySelectorAll('.panel').forEach(p =>
                 p.classList.toggle('active', p.dataset.tab === name));
-            restartIntervals();
+            startPolling();
         }
 
-        function startDataUpdate() {
-            restartIntervals();
-        }
-
-        function stopDataUpdate() {
-            if (demoInterval)  { clearInterval(demoInterval);  demoInterval = null; }
-            if (debugInterval) { clearInterval(debugInterval); debugInterval = null; }
-        }
-
-        async function zeroHere() {
-            const btn = document.getElementById('zero-here-button');
-            const tag = document.getElementById('zero-status');
+        /* ---------- Action handlers ---------- */
+        async function runCommand(varName, btnId, statusId, label) {
+            const btn = document.getElementById(btnId);
+            const st  = document.getElementById(statusId);
             try {
                 if (!pcm || !isConnected) throw new Error('Not connected');
                 btn.disabled = true;
-                tag.textContent = 'Zeroing';
-                tag.className = 'status-badge status-running';
-                await pcm.WriteUIntVariable('fm_zero_ctrl', 1, 1);
-                tag.textContent = 'Done';
-                tag.className = 'status-badge status-done';
+                if (st) { st.textContent = label || 'Sending'; st.className = 'btn-status is-running'; }
+                await pcm.WriteUIntVariable(varName, 1, 1);
+                if (st) { st.textContent = 'Done'; st.className = 'btn-status is-done'; }
             } catch (err) {
-                document.getElementById('zero-error').textContent = 'Zero failed: ' + err.message;
-                tag.textContent = 'Idle';
-                tag.className = 'status-badge status-idle';
+                document.getElementById('control-error').textContent = label + ' failed: ' + err.message;
+                if (st) { st.textContent = 'Failed'; st.className = 'btn-status is-fail'; }
             } finally {
-                btn.disabled = false;
+                setTimeout(() => { btn.disabled = false; }, 800);
             }
         }
 
-        async function mcuReset() {
-            const btn = document.getElementById('reset-button');
-            try {
-                if (!pcm || !isConnected) throw new Error('Not connected');
-                btn.disabled = true;
-                await pcm.WriteUIntVariable('fm_reset_ctrl', 1, 1);
-            } catch (err) {
-                document.getElementById('zero-error').textContent = 'Reset failed: ' + err.message;
-            } finally {
-                setTimeout(() => { btn.disabled = false; }, 1500);
-            }
+        /* ---------- Clock ---------- */
+        function tickClock() {
+            const d = new Date();
+            const pad = (n) => String(n).padStart(2, '0');
+            document.getElementById('clock').textContent =
+                pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds());
         }
 
-        async function factoryCal() {
-            const btn = document.getElementById('factory-cal-button');
-            try {
-                if (!pcm || !isConnected) throw new Error('Not connected');
-                btn.disabled = true;
-                await pcm.WriteUIntVariable('fm_factory_cal_ctrl', 1, 1);
-            } catch (err) {
-                document.getElementById('zero-error').textContent = 'Factory calibration failed: ' + err.message;
-            } finally {
-                setTimeout(() => { btn.disabled = false; }, 1000);
-            }
-        }
-
-        document.addEventListener('DOMContentLoaded', function() {
+        /* ---------- Init ---------- */
+        document.addEventListener('DOMContentLoaded', () => {
             initializePCM();
-            document.getElementById('zero-here-button').addEventListener('click', zeroHere);
-            document.getElementById('reset-button').addEventListener('click', mcuReset);
-            document.getElementById('factory-cal-button').addEventListener('click', factoryCal);
-            document.querySelectorAll('.tab-btn').forEach(b =>
-                b.addEventListener('click', () => setActiveTab(b.dataset.tab)));
+            tickClock(); setInterval(tickClock, 1000);
+
+            document.getElementById('btn-zero').addEventListener('click', () =>
+                runCommand('fm_zero_ctrl', 'btn-zero', 'zero-status', 'Zeroing'));
+            document.getElementById('btn-turn-reset').addEventListener('click', () =>
+                runCommand('fm_turn_reset_ctrl', 'btn-turn-reset', 'turn-reset-status', 'Resetting'));
+            document.getElementById('btn-factory').addEventListener('click', () =>
+                runCommand('fm_factory_cal_ctrl', 'btn-factory', null, 'Factory cal'));
+            document.getElementById('btn-reset').addEventListener('click', () =>
+                runCommand('fm_reset_ctrl', 'btn-reset', 'reset-status', 'Resetting'));
+
+            document.querySelectorAll('.tab').forEach(t =>
+                t.addEventListener('click', () => setActiveTab(t.dataset.tab)));
         });
 
-        window.addEventListener('beforeunload', function() {
-            if (pcm) pcm.Shutdown();
-        });
+        window.addEventListener('beforeunload', () => { if (pcm) pcm.Shutdown(); });
     </script>
 </body>
 </html>

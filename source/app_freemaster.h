@@ -17,6 +17,7 @@ void AppFreemaster_Init(void);
 
 extern volatile uint8_t fm_reset_ctrl;
 extern volatile uint8_t fm_zero_ctrl;
+extern volatile uint8_t fm_turn_reset_ctrl;
 extern volatile uint8_t fm_factory_cal_ctrl;
 extern volatile uint8_t fm_factory_cal_state;
 extern volatile uint8_t fm_factory_cal_progress;

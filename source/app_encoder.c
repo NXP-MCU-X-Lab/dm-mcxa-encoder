@@ -99,17 +99,43 @@ static float clamp_float(float value, float min_value, float max_value)
     return value;
 }
 
-#define ENCODER_MAG_FILTER_ALPHA (0.1f)
-
-static float s_mag_a1_filtered = 0.0f;
-static float s_mag_a2_filtered = 0.0f;
-static bool  s_mag_filter_inited = false;
-
-static float filter_mag(float raw, float *state)
+/* Rotor-angle binned mag window: each bin holds the latest mag sampled while
+ * the rotor was in that angular sector. Once every bin has been visited at
+ * least once, we publish the mean across the window so the displayed mag does
+ * not depend on where the rotor happened to be parked at power-up. The mean
+ * is also the AGC feedback signal that drives gain trim toward unity. */
+static float mag_window_update(encoder_mag_window_t *win, float raw_mag, float angle_deg)
 {
-    *state += ENCODER_MAG_FILTER_ALPHA * (raw - *state);
-    return *state;
+    uint32_t bin;
+
+    if (win == NULL)
+    {
+        return raw_mag;
+    }
+
+    bin = (uint32_t)((wrap_deg(angle_deg) * (float)ENCODER_MAG_WINDOW_BINS) / 360.0f);
+    if (bin >= ENCODER_MAG_WINDOW_BINS)
+    {
+        bin = ENCODER_MAG_WINDOW_BINS - 1U;
+    }
+
+    win->sum -= win->bins[bin];
+    win->bins[bin] = raw_mag;
+    win->sum += raw_mag;
+    win->coverage_mask |= ((uint32_t)1U << bin);
+    if (win->coverage_mask == ENCODER_MAG_WINDOW_FULL_MASK)
+    {
+        win->full_revolution_seen = true;
+    }
+
+    if (!win->full_revolution_seen)
+    {
+        return raw_mag;
+    }
+
+    return win->sum / (float)ENCODER_MAG_WINDOW_BINS;
 }
+
 
 /* Type-II tracking observer (software PLL) — canonical resolver / inductive
  * encoder output stage. Closed-loop characteristic eq: s^2 + Kp*s + Ki,
@@ -140,6 +166,9 @@ static float filter_published_angle(encoder_state_t *state, float raw_angle_deg)
 
     error = signed_angle_error_deg(raw_angle_deg, state->filtered_angle_deg);
     state->tracking_velocity_dps += ENCODER_TRACKING_KI * error * ENCODER_TRACKING_DT;
+    state->tracking_velocity_dps = clamp_float(state->tracking_velocity_dps,
+                                               -ENCODER_TRACKING_VEL_MAX_DPS,
+                                               ENCODER_TRACKING_VEL_MAX_DPS);
     omega = state->tracking_velocity_dps + (ENCODER_TRACKING_KP * error);
     state->filtered_angle_deg = wrap_deg(state->filtered_angle_deg +
                                          (omega * ENCODER_TRACKING_DT));
@@ -202,6 +231,9 @@ static void reset_trim_window(encoder_runtime_trim_t *trim)
     trim->a2_sin_max = 0U;
     trim->a2_cos_min = UINT16_MAX;
     trim->a2_cos_max = 0U;
+    trim->a1_raw_mag_sum = 0.0f;
+    trim->a2_raw_mag_sum = 0.0f;
+    trim->raw_mag_count = 0U;
 }
 
 static float update_trim_delta(float current_delta, float desired_delta)
@@ -215,6 +247,27 @@ static float update_trim_delta(float current_delta, float desired_delta)
     return clamp_float(current_delta + step,
                        -ENCODER_RUNTIME_TRIM_TOTAL_LIMIT_COUNTS,
                        ENCODER_RUNTIME_TRIM_TOTAL_LIMIT_COUNTS);
+}
+
+/* AGC step: per-revolution step proportional to (1 - mag_mean_observed), then
+ * clamped. Converges current gain so that mean magnitude approaches 1.0 even if
+ * the analog amplitude has drifted from factory-cal conditions. */
+static float update_gain_delta(float current_delta, float observed_mag)
+{
+    float step;
+
+    if (!is_finite_float(observed_mag) || (observed_mag <= 0.0f))
+    {
+        return current_delta;
+    }
+
+    step = clamp_float(1.0f - observed_mag,
+                       -ENCODER_RUNTIME_TRIM_GAIN_STEP_LIMIT,
+                       ENCODER_RUNTIME_TRIM_GAIN_STEP_LIMIT);
+
+    return clamp_float(current_delta + step,
+                       -ENCODER_RUNTIME_TRIM_GAIN_TOTAL_LIMIT,
+                       ENCODER_RUNTIME_TRIM_GAIN_TOTAL_LIMIT);
 }
 
 static void accumulate_track_stats(encoder_track_cal_stats_t *stats, uint16_t sin_raw, uint16_t cos_raw)
@@ -527,6 +580,8 @@ static void hold_last_angle(encoder_state_t *state, encoder_result_t *result)
         result->angle_deg_raw = state->last_angle_raw_deg;
         result->angle_deg_filtered = state->last_angle_deg;
         result->angle_counts = state->last_angle_counts;
+        result->turn_count = state->turn_count;
+        result->multi_turn_deg = ((float)state->turn_count * 360.0f) + state->last_angle_deg;
     }
     else
     {
@@ -534,6 +589,8 @@ static void hold_last_angle(encoder_state_t *state, encoder_result_t *result)
         result->angle_deg_raw = 0.0f;
         result->angle_deg_filtered = 0.0f;
         result->angle_counts = 0U;
+        result->turn_count = (state != NULL) ? state->turn_count : 0;
+        result->multi_turn_deg = 0.0f;
     }
 }
 
@@ -568,10 +625,17 @@ static void update_candidate_error(encoder_solver_candidate_t *candidate)
 
 /* Vernier branch-slip guard: if the angle jumped by more than half a fine cycle
  * in a single sample, search ±8 fine branches and pick the one closest to the
- * previous angle. Prevents single-frame ADC glitches from flipping branches. */
+ * predicted angle. Prevents single-frame ADC glitches from flipping branches.
+ *
+ * The prediction uses last_angle_raw_deg (the previous Vernier solve, not the
+ * PLL-filtered display angle) plus a velocity feed-forward term. Using the
+ * filtered angle would create a circular dependency where the tracking
+ * observer's lag biases the discrete branch decision, which can pick the wrong
+ * branch on accel/recovery. */
 static void stabilize_vernier_branch(const encoder_state_t *state, encoder_solver_candidate_t *candidate)
 {
     encoder_solver_candidate_t adjusted;
+    float predicted_angle;
     float current_step;
     float best_distance;
     int32_t branch;
@@ -581,7 +645,10 @@ static void stabilize_vernier_branch(const encoder_state_t *state, encoder_solve
         return;
     }
 
-    current_step = fabsf(signed_angle_error_deg(candidate->angle, state->last_angle_deg));
+    predicted_angle = wrap_deg(state->last_angle_raw_deg +
+                               (state->tracking_velocity_dps * ENCODER_TRACKING_DT));
+
+    current_step = fabsf(signed_angle_error_deg(candidate->angle, predicted_angle));
     if (current_step <= ENCODER_BRANCH_SLIP_STEP_DEG)
     {
         return;
@@ -596,7 +663,7 @@ static void stabilize_vernier_branch(const encoder_state_t *state, encoder_solve
         const float trial_distance =
             fabsf(signed_angle_error_deg(wrap_deg(candidate->angle +
                                                   ((float)branch * ENCODER_FINE_BRANCH_STEP_DEG)),
-                                         state->last_angle_deg));
+                                         predicted_angle));
 
         if (trial_distance >= best_distance)
         {
@@ -798,6 +865,16 @@ void encoder_state_init(encoder_state_t *state)
     *state = (encoder_state_t){0};
 }
 
+void encoder_state_reset_turn_count(encoder_state_t *state)
+{
+    if (state == NULL)
+    {
+        return;
+    }
+
+    state->turn_count = 0;
+}
+
 void encoder_runtime_trim_init(encoder_runtime_trim_t *trim)
 {
     if (trim == NULL)
@@ -807,7 +884,6 @@ void encoder_runtime_trim_init(encoder_runtime_trim_t *trim)
 
     *trim = (encoder_runtime_trim_t){0};
     trim->enabled = true;
-    trim->freeze_reason = ENCODER_RUNTIME_TRIM_FREEZE_COVERAGE;
     reset_trim_window(trim);
 }
 
@@ -844,6 +920,17 @@ void encoder_runtime_trim_apply(const encoder_calibration_t *factory,
     effective->a1.center_cos += trim->a1_center_cos_delta;
     effective->a2.center_sin += trim->a2_center_sin_delta;
     effective->a2.center_cos += trim->a2_center_cos_delta;
+
+    {
+        const float a1_gain = 1.0f + trim->a1_gain_delta;
+        const float a2_gain = 1.0f + trim->a2_gain_delta;
+        effective->a1.t00 *= a1_gain;
+        effective->a1.t10 *= a1_gain;
+        effective->a1.t11 *= a1_gain;
+        effective->a2.t00 *= a2_gain;
+        effective->a2.t10 *= a2_gain;
+        effective->a2.t11 *= a2_gain;
+    }
 }
 
 void encoder_runtime_trim_update(encoder_runtime_trim_t *trim,
@@ -862,46 +949,20 @@ void encoder_runtime_trim_update(encoder_runtime_trim_t *trim,
         return;
     }
 
-    if (!trim->enabled)
-    {
-        trim->active = false;
-        trim->freeze_reason = ENCODER_RUNTIME_TRIM_FREEZE_DISABLED;
-        reset_trim_window(trim);
-        return;
-    }
-
-    if ((factory == NULL) || !factory->valid)
-    {
-        trim->active = false;
-        trim->freeze_reason = ENCODER_RUNTIME_TRIM_FREEZE_NOT_CALIBRATED;
-        reset_trim_window(trim);
-        return;
-    }
-
-    if (result->status != ENCODER_STATUS_OK)
-    {
-        trim->active = false;
-        trim->freeze_reason = ENCODER_RUNTIME_TRIM_FREEZE_STATUS;
-        reset_trim_window(trim);
-        return;
-    }
-
-    if ((result->mag16 < ENCODER_RUNTIME_TRIM_MAG_MIN) ||
-        (result->mag16 > ENCODER_RUNTIME_TRIM_MAG_MAX) ||
-        (result->mag15 < ENCODER_RUNTIME_TRIM_MAG_MIN) ||
-        (result->mag15 > ENCODER_RUNTIME_TRIM_MAG_MAX))
-    {
-        trim->active = false;
-        trim->freeze_reason = ENCODER_RUNTIME_TRIM_FREEZE_MAGNITUDE;
-        reset_trim_window(trim);
-        return;
-    }
-
-    if (adc_is_rail(sample->a1_sin_raw) || adc_is_rail(sample->a1_cos_raw) ||
+    /* AGC gate and feedback consume raw instantaneous magnitude, not the
+     * binned-window display mean. Closing the loop on the display mean would
+     * mask local weak / over-amplitude signals and let the AGC chase its own
+     * averaged output. */
+    if (!trim->enabled || (factory == NULL) || !factory->valid ||
+        (result->status != ENCODER_STATUS_OK) ||
+        (result->mag16_raw < ENCODER_RUNTIME_TRIM_MAG_MIN) ||
+        (result->mag16_raw > ENCODER_RUNTIME_TRIM_MAG_MAX) ||
+        (result->mag15_raw < ENCODER_RUNTIME_TRIM_MAG_MIN) ||
+        (result->mag15_raw > ENCODER_RUNTIME_TRIM_MAG_MAX) ||
+        adc_is_rail(sample->a1_sin_raw) || adc_is_rail(sample->a1_cos_raw) ||
         adc_is_rail(sample->a2_sin_raw) || adc_is_rail(sample->a2_cos_raw))
     {
         trim->active = false;
-        trim->freeze_reason = ENCODER_RUNTIME_TRIM_FREEZE_STATUS;
         reset_trim_window(trim);
         return;
     }
@@ -910,6 +971,10 @@ void encoder_runtime_trim_update(encoder_runtime_trim_t *trim,
     update_min_max(sample->a1_cos_raw, &trim->a1_cos_min, &trim->a1_cos_max);
     update_min_max(sample->a2_sin_raw, &trim->a2_sin_min, &trim->a2_sin_max);
     update_min_max(sample->a2_cos_raw, &trim->a2_cos_min, &trim->a2_cos_max);
+
+    trim->a1_raw_mag_sum += result->mag16_raw;
+    trim->a2_raw_mag_sum += result->mag15_raw;
+    trim->raw_mag_count++;
 
     bin = (uint32_t)((wrap_deg(result->angle_deg_raw) *
                       (float)ENCODER_RUNTIME_TRIM_BIN_COUNT) /
@@ -920,14 +985,11 @@ void encoder_runtime_trim_update(encoder_runtime_trim_t *trim,
     }
     trim->coverage_mask |= (1UL << bin);
     trim->window_count++;
-    trim->accepted_samples++;
 
     if ((trim->window_count < ENCODER_RUNTIME_TRIM_MIN_WINDOW_SAMPLES) ||
         (trim->coverage_mask != ENCODER_RUNTIME_TRIM_FULL_COVERAGE_MASK))
     {
-        trim->active = trim->update_count > 0U;
-        trim->freeze_reason = trim->active ? ENCODER_RUNTIME_TRIM_FREEZE_NONE :
-                                             ENCODER_RUNTIME_TRIM_FREEZE_COVERAGE;
+        trim->active = trim->has_locked;
         return;
     }
 
@@ -949,9 +1011,19 @@ void encoder_runtime_trim_update(encoder_runtime_trim_t *trim,
         update_trim_delta(trim->a2_center_cos_delta,
                           a2_cos_center - factory->a2.center_cos);
 
+    {
+        const float inv_count = (trim->raw_mag_count > 0U)
+                                    ? (1.0f / (float)trim->raw_mag_count)
+                                    : 0.0f;
+        const float a1_raw_mag_mean = trim->a1_raw_mag_sum * inv_count;
+        const float a2_raw_mag_mean = trim->a2_raw_mag_sum * inv_count;
+
+        trim->a1_gain_delta = update_gain_delta(trim->a1_gain_delta, a1_raw_mag_mean);
+        trim->a2_gain_delta = update_gain_delta(trim->a2_gain_delta, a2_raw_mag_mean);
+    }
+
     trim->active = true;
-    trim->freeze_reason = ENCODER_RUNTIME_TRIM_FREEZE_NONE;
-    trim->update_count++;
+    trim->has_locked = true;
     reset_trim_window(trim);
 }
 
@@ -983,6 +1055,10 @@ void encoder_process(encoder_state_t *state,
     result->coarse_deg = 0.0f;
     result->mag16 = 0.0f;
     result->mag15 = 0.0f;
+    result->mag16_raw = 0.0f;
+    result->mag15_raw = 0.0f;
+    result->turn_count = (state != NULL) ? state->turn_count : 0;
+    result->multi_turn_deg = 0.0f;
     result->status = ENCODER_STATUS_OK;
     init_diag(diag);
 
@@ -1043,14 +1119,12 @@ void encoder_process(encoder_state_t *state,
         {
             stabilize_vernier_branch(state, &best);
 
-            if (!s_mag_filter_inited)
-            {
-                s_mag_a1_filtered = mag_a1;
-                s_mag_a2_filtered = mag_a2;
-                s_mag_filter_inited = true;
-            }
-            result->mag16 = filter_mag(mag_a1, &s_mag_a1_filtered);
-            result->mag15 = filter_mag(mag_a2, &s_mag_a2_filtered);
+            result->mag16_raw = mag_a1;
+            result->mag15_raw = mag_a2;
+            result->mag16 = mag_window_update((state != NULL) ? &state->mag_window_a1 : NULL,
+                                              mag_a1, best.angle);
+            result->mag15 = mag_window_update((state != NULL) ? &state->mag_window_a2 : NULL,
+                                              mag_a2, best.angle);
             result->phase16_deg = best.p16;
             result->phase15_deg = best.p15;
             result->coarse_deg = best.coarse;
@@ -1077,24 +1151,91 @@ void encoder_process(encoder_state_t *state,
     if (status == ENCODER_STATUS_OK)
     {
         const float raw_angle_deg = best.angle;
+
+        if ((state != NULL) &&
+            (state->hold_last_streak >= ENCODER_FILTER_HOLD_RESYNC_SAMPLES))
+        {
+            state->filter_initialized = false;
+            state->tracking_velocity_dps = 0.0f;
+        }
+
         result->angle_deg_raw = raw_angle_deg;
         result->angle_deg_filtered = filter_published_angle(state, raw_angle_deg);
-        result->angular_velocity_dps = state->tracking_velocity_dps;
+        result->angular_velocity_dps = (state != NULL) ? state->tracking_velocity_dps : 0.0f;
         result->angle_deg = result->angle_deg_filtered;
+
+        /* Output dead-band: when the new filtered angle is within
+         * ENCODER_OUTPUT_DEADBAND_DEG of the last published angle, hold the last
+         * value. Backstop for the PLL dead-zone — at rotor positions where the
+         * analog SNR is worse the PLL may not fully freeze, so we add a second
+         * gate here that only affects the published output, not the PLL state. */
+        if ((state != NULL) && state->has_valid_angle &&
+            (fabsf(signed_angle_error_deg(result->angle_deg, state->last_angle_deg)) <
+             ENCODER_OUTPUT_DEADBAND_DEG))
+        {
+            result->angle_deg = state->last_angle_deg;
+        }
+
         result->angle_counts = angle_to_counts(result->angle_deg);
+
+        if ((state != NULL) && state->has_valid_angle)
+        {
+            int32_t diff = (int32_t)result->angle_counts - (int32_t)state->last_angle_counts;
+            if (diff < -((int32_t)ENCODER_COUNTS_PER_REV / 2))
+            {
+                diff += (int32_t)ENCODER_COUNTS_PER_REV;
+            }
+            else if (diff > ((int32_t)ENCODER_COUNTS_PER_REV / 2))
+            {
+                diff -= (int32_t)ENCODER_COUNTS_PER_REV;
+            }
+            if ((diff >= -ENCODER_ANGLE_COUNT_HYSTERESIS) &&
+                (diff <= ENCODER_ANGLE_COUNT_HYSTERESIS))
+            {
+                result->angle_counts = state->last_angle_counts;
+            }
+        }
 
         if (state != NULL)
         {
+            /* Multi-turn boundary detection: a raw step larger than 180° must be
+             * a wrap. Step from 350° → 10° is -340° → +1 turn; 10° → 350° is
+             * +340° → -1 turn. Only counted once has_valid_angle is set, so the
+             * first sample after init does not produce a spurious turn. */
+            if (state->has_valid_angle)
+            {
+                const float raw_delta = result->angle_deg - state->last_angle_deg;
+                if (raw_delta < -180.0f)
+                {
+                    if (state->turn_count < INT32_MAX) state->turn_count++;
+                }
+                else if (raw_delta > 180.0f)
+                {
+                    if (state->turn_count > INT32_MIN) state->turn_count--;
+                }
+            }
+
             state->last_angle_deg = result->angle_deg;
             state->last_angle_raw_deg = result->angle_deg_raw;
             state->last_angle_counts = result->angle_counts;
             state->has_valid_angle = true;
+            state->hold_last_streak = 0U;
+
+            result->turn_count = state->turn_count;
+            result->multi_turn_deg = ((float)state->turn_count * 360.0f) + result->angle_deg;
         }
     }
     else
     {
         status |= ENCODER_STATUS_HOLD_LAST;
         hold_last_angle(state, result);
+        if (state != NULL)
+        {
+            if (state->hold_last_streak < UINT32_MAX)
+            {
+                state->hold_last_streak++;
+            }
+        }
     }
 
     result->status = status;
