@@ -39,7 +39,6 @@
 *.lst
 *.uvgui*
 output
-Doc
 settings
 Debug
 SI
