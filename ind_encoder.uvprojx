@@ -786,6 +786,11 @@
               <FilePath>.\source\app_encoder_runtime.c</FilePath>
             </File>
             <File>
+              <FileName>app_tformat.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>.\source\app_tformat.c</FilePath>
+            </File>
+            <File>
               <FileName>clock_config.c</FileName>
               <FileType>1</FileType>
               <FilePath>.\source\clock_config.c</FilePath>

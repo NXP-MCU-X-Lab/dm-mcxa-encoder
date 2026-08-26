@@ -9,6 +9,7 @@
 #include "app_adc.h"
 #include "app_encoder_storage.h"
 #include "app_freemaster.h"
+#include "app_tformat.h"
 
 #define ZERO_AVERAGE_SAMPLES    64U
 #define CAL_SAMPLE_RATE_HZ      1000U
@@ -158,6 +159,10 @@ static void encoder_sample_callback(const adc_sample_result_t *sample)
     s_realtime_encoder_valid = s_factory_calibration.valid ? 1U : 0U;
     s_realtime_sequence++;
 
+    TFormat_Publish(next_encoder_result.angle_counts,
+                    next_encoder_result.status,
+                    s_factory_calibration.valid);
+
     capture_sample_from_isr(&encoder_sample);
 
     cyc_isr = DWT->CYCCNT - cyc_isr_start;
@@ -187,6 +192,16 @@ static void publish_realtime_snapshot(void)
     adc_sample_count = adc_get_sample_count();
     adc_overrun_count = adc_get_overrun_count();
     EnableGlobalIRQ(irq_mask);
+
+#if defined(DEBUG)
+    TFormat_PublishDiagnostics(encoder_result.status,
+                               fm_encoder_valid != 0U,
+                               encoder_calibration_source,
+                               encoder_result.mag16_raw,
+                               encoder_result.mag15_raw,
+                               adc_sample_count,
+                               adc_overrun_count);
+#endif
 }
 
 static bool capture_is_idle(void)

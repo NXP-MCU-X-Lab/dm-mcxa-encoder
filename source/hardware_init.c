@@ -16,7 +16,6 @@
 #include "fsl_debug_console.h"
 #include "clock_config.h"
 #include "hardware_init.h"
-#include <stdbool.h>
 /*${header:end}*/
 
 
@@ -105,20 +104,6 @@ void Opamp_Init(void)
     
     OPAMP_Enable(OPAMP0, true);
     OPAMP_Enable(OPAMP1, true);
-}
-
-void UART485_SetTxRts(LPUART_Type *LPUARTx, bool enable)
-{
-    if (enable)
-    {
-        LPUARTx->MODIR |= LPUART_MODIR_TXRTSE_MASK;
-        LPUARTx->MODIR |= LPUART_MODIR_TXRTSPOL_MASK;
-    }
-    else
-    {
-        LPUARTx->MODIR &= ~LPUART_MODIR_TXRTSE_MASK;
-        LPUARTx->MODIR &= ~LPUART_MODIR_TXRTSPOL_MASK;
-    }
 }
 
 /*${function:start}*/

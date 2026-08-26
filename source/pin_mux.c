@@ -65,7 +65,7 @@ void Pins_Init(void)
     RESET_ReleasePeripheralReset(kINPUTMUX0_RST_SHIFT_RSTn);
     RESET_ReleasePeripheralReset(kDMA0_RST_SHIFT_RSTn);
         
-    const port_pin_config_t port1_5_pin35_config = {/* Internal pull-up resistor is enabled */
+    const port_pin_config_t port2_2_pin35_config = {/* Internal pull-up resistor is enabled */
                                                     .pullSelect = kPORT_PullUp,
                                                     /* Low internal pull resistor value is selected. */
                                                     .pullValueSelect = kPORT_LowPullResistor,
@@ -88,9 +88,9 @@ void Pins_Init(void)
                                                     /* Pin Control Register fields [15:0] are not locked */
                                                     .lockRegister = kPORT_UnlockRegister};
     /* PORT2_2 (pin 35) is configured as LPUART2_TXD */
-    PORT_SetPinConfig(PORT1, 5, &port1_5_pin35_config);
+    PORT_SetPinConfig(PORT2, 2, &port2_2_pin35_config);
 
-    const port_pin_config_t port1_4_pin36_config = {/* Internal pull-up resistor is enabled */
+    const port_pin_config_t port2_3_pin36_config = {/* Internal pull-up resistor is enabled */
                                                     .pullSelect = kPORT_PullUp,
                                                     /* Low internal pull resistor value is selected. */
                                                     .pullValueSelect = kPORT_LowPullResistor,
@@ -113,32 +113,7 @@ void Pins_Init(void)
                                                     /* Pin Control Register fields [15:0] are not locked */
                                                     .lockRegister = kPORT_UnlockRegister};
     /* PORT2_3 (pin 36) is configured as LPUART2_RXD */
-    PORT_SetPinConfig(PORT1, 4, &port1_4_pin36_config);
-                                                    
-    const port_pin_config_t port1_6_config = {/* Internal pull-up resistor is enabled */
-                                                    .pullSelect = kPORT_PullUp,
-                                                    /* Low internal pull resistor value is selected. */
-                                                    .pullValueSelect = kPORT_LowPullResistor,
-                                                    /* Fast slew rate is configured */
-                                                    .slewRate = kPORT_FastSlewRate,
-                                                    /* Passive input filter is disabled */
-                                                    .passiveFilterEnable = kPORT_PassiveFilterDisable,
-                                                    /* Open drain output is disabled */
-                                                    .openDrainEnable = kPORT_OpenDrainDisable,
-                                                    /* Low drive strength is configured */
-                                                    .driveStrength = kPORT_LowDriveStrength,
-                                                    /* Normal drive strength is configured */
-                                                    .driveStrength1 = kPORT_NormalDriveStrength,
-                                                    /* Pin is configured as LPUART2_RXD */
-                                                    .mux = kPORT_MuxAlt3,
-                                                    /* Digital input enabled */
-                                                    .inputBuffer = kPORT_InputBufferEnable,
-                                                    /* Digital input is not inverted */
-                                                    .invertInput = kPORT_InputNormal,
-                                                    /* Pin Control Register fields [15:0] are not locked */
-                                                    .lockRegister = kPORT_UnlockRegister};
-    /* PORT2_3 (pin 36) is configured as LPUART2_RTS_B */
-    PORT_SetPinConfig(PORT1, 6, &port1_6_config);
+    PORT_SetPinConfig(PORT2, 3, &port2_3_pin36_config);
                                                     
     /* UART0 */
     const port_pin_config_t port2_0_config = {/* Internal pull-up resistor is enabled */

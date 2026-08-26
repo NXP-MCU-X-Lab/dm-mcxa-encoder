@@ -8,7 +8,6 @@
 #define _HARDWARE_INIT_H_
 
 #include "fsl_common.h"
-#include <stdbool.h>
 
 /*******************************************************************************
  * Definitions
@@ -30,7 +29,6 @@ extern "C" {
 
 void Hardware_Init(void);
 void Hardware_DebugConsoleInit(void);
-void UART485_SetTxRts(LPUART_Type *LPUARTx, bool enable);
 void TestPin_Init(void);
 void TestPin_Set(void);
 void TestPin_Clear(void);
