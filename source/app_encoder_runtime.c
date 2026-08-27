@@ -1,5 +1,6 @@
 #include "app_encoder_runtime.h"
 
+#include <math.h>
 #include <stdbool.h>
 #include <stdint.h>
 
@@ -24,6 +25,10 @@
 #define CAPTURE_MODE_FACTORY    2U
 
 #define FACTORY_CAL_CMD_START   1U
+/* Recovery: wipe stored calibration and fall back to the compiled-in defaults,
+ * from which the runtime trim re-acquires. Without this the only way out of a
+ * bad stored calibration is a reflash. */
+#define FACTORY_CAL_CMD_ERASE   2U
 
 typedef struct {
     uint32_t a1_sin_sum;
@@ -49,6 +54,9 @@ volatile uint32_t encoder_perf_core_clock_hz;
 static encoder_calibration_t s_factory_calibration;
 static encoder_state_t s_encoder_state;
 static encoder_runtime_trim_t s_runtime_trim;
+/* Harmonic correction prototype. Runtime learning and persistence are not wired
+ * yet, so the invalid table remains a no-op in encoder_process(). */
+static encoder_inl_t s_encoder_inl;
 static uint32_t s_app_status_flags;
 
 static volatile encoder_result_t s_realtime_encoder_result;
@@ -65,6 +73,8 @@ static volatile encoder_raw_sample_t s_capture_sample;
 static zero_accumulator_t s_zero_accum;
 static encoder_cal_stats_t s_factory_stats;
 static encoder_raw_sample_t s_factory_zero_sample;
+/* Latched per boot, and re-armed by a fresh factory calibration. */
+static bool s_autosave_done;
 
 /* Cortex-M33 DWT cycle counter — free, 1-cycle precision profiling source.
  * Has to be unlocked once via TRCENA before CYCCNT will increment. */
@@ -136,22 +146,21 @@ static void encoder_sample_callback(const adc_sample_result_t *sample)
     cyc_proc_start = DWT->CYCCNT;
     encoder_process(&s_encoder_state,
                     &effective_calibration,
+                    &s_encoder_inl,
                     &encoder_sample,
                     &next_encoder_result,
                     NULL);
     cyc_proc = DWT->CYCCNT - cyc_proc_start;
 
-    if (encoder_calibration_source == ENCODER_CAL_SOURCE_NVM)
-    {
-        encoder_runtime_trim_update(&s_runtime_trim,
-                                    &s_factory_calibration,
-                                    &encoder_sample,
-                                    &next_encoder_result);
-    }
-    else
-    {
-        encoder_runtime_trim_update(&s_runtime_trim, NULL, &encoder_sample, &next_encoder_result);
-    }
+    /* Runs against whatever calibration is active, board defaults included. Gating
+     * this on a stored calibration made the online estimator useless exactly when
+     * it was needed most: a board that has never been calibrated is the one whose
+     * defaults are furthest from the truth, and it could not converge because it
+     * had not been calibrated. */
+    encoder_runtime_trim_update(&s_runtime_trim,
+                                &s_factory_calibration,
+                                &encoder_sample,
+                                &next_encoder_result);
 
     next_encoder_result.status |= s_app_status_flags;
 
@@ -241,6 +250,7 @@ static void start_factory_calibration(void)
     encoder_runtime_trim_reset(&s_runtime_trim);
     EnableGlobalIRQ(irq_mask);
 
+    s_autosave_done = false;
     fm_factory_cal_state = ENCODER_FACTORY_CAL_STATE_RUNNING;
     fm_factory_cal_progress = 0U;
     fm_factory_cal_status = ENCODER_STATUS_OK;
@@ -368,7 +378,9 @@ static void apply_calibration(const encoder_calibration_t *calibration,
     s_factory_calibration = *calibration;
     s_app_status_flags = app_status_flags;
     encoder_calibration_source = source;
-    s_runtime_trim.enabled = (source == ENCODER_CAL_SOURCE_NVM);
+    /* Always on. start_factory_calibration() still switches it off for the
+     * duration of a capture so the two do not fight over the same coefficients. */
+    s_runtime_trim.enabled = true;
     encoder_runtime_trim_reset(&s_runtime_trim);
     encoder_state_init(&s_encoder_state);
     EnableGlobalIRQ(irq_mask);
@@ -412,13 +424,18 @@ static void finish_zero_if_ready(void)
         return;
     }
 
-    calibration = s_factory_calibration;
+    /* Zero against the calibration actually in force, trim included. Using the
+     * untrimmed baseline would install it as the new one and reset the trim,
+     * discarding a converged acquisition every time the user zeroes -- harmless
+     * back when the trim was a small correction, but it is the primary
+     * calibration path now. */
+    encoder_runtime_trim_apply(&s_factory_calibration, &s_runtime_trim, &calibration);
     if (!calibration.valid)
     {
         return;
     }
 
-    if (encoder_capture_zero(&calibration, &zero_sample, &status))
+    if (encoder_capture_zero(&calibration, &s_encoder_inl, &zero_sample, &status))
     {
         apply_zero(&calibration);
         fm_encoder_valid = 1U;
@@ -440,7 +457,7 @@ static void finish_factory_calibration_if_ready(void)
     }
 
     if (!encoder_cal_stats_build(&s_factory_stats, &calibration, &status) ||
-        !encoder_capture_zero(&calibration, &s_factory_zero_sample, &status))
+        !encoder_capture_zero(&calibration, &s_encoder_inl, &s_factory_zero_sample, &status))
     {
         fm_factory_cal_state = ENCODER_FACTORY_CAL_STATE_FAILED;
         fm_factory_cal_status = status | ENCODER_STATUS_CAL_FAILED;
@@ -449,7 +466,7 @@ static void finish_factory_calibration_if_ready(void)
     }
 
     encoder_state_init(&temp_state);
-    encoder_process(&temp_state, &calibration, &s_factory_zero_sample, &temp_result, NULL);
+    encoder_process(&temp_state, &calibration, &s_encoder_inl, &s_factory_zero_sample, &temp_result, NULL);
     quality.sample_count = ENCODER_CAL_SAMPLE_COUNT;
     quality.status = temp_result.status;
     quality.mag16 = temp_result.mag16;
@@ -521,7 +538,102 @@ static void service_encoder_commands(void)
         {
             start_factory_calibration();
         }
+        else if ((cmd == FACTORY_CAL_CMD_ERASE) && capture_is_idle())
+        {
+            adc_realtime_stop();
+            (void)EncoderStorage_EraseFactoryCalibration();
+            adc_realtime_start();
+            load_startup_calibration();
+            s_autosave_done = false;
+            fm_factory_cal_state = ENCODER_FACTORY_CAL_STATE_IDLE;
+            fm_factory_cal_status = ENCODER_STATUS_OK;
+        }
     }
+}
+
+/* Persist the converged calibration so the next boot starts converged instead of
+ * spending a revolution re-acquiring. That is the difference between "plug it in
+ * and it works" and "plug it in, turn it once, then it works".
+ *
+ * Steady state is zero writes: a board that boots from a good stored calibration
+ * produces a small trim delta and never trips the threshold. Only a board running
+ * on defaults, or one that has genuinely drifted, writes anything. That matters
+ * because the whole 8 KB calibration area is a single erase sector -- filling it
+ * forces an erase, and a power loss inside that window drops every stored slot.
+ * The consequence is now bounded though: losing the store falls back to defaults,
+ * and the runtime trim re-acquires within a revolution. */
+#define ENCODER_AUTOSAVE_MIN_SOLVES (8U)
+#define ENCODER_AUTOSAVE_CENTRE_COUNTS (16.0f)
+
+static float centre_drift(const encoder_calibration_t *a, const encoder_calibration_t *b)
+{
+    float worst = fabsf(a->a1.center_sin - b->a1.center_sin);
+    const float candidates[3] = {
+        fabsf(a->a1.center_cos - b->a1.center_cos),
+        fabsf(a->a2.center_sin - b->a2.center_sin),
+        fabsf(a->a2.center_cos - b->a2.center_cos),
+    };
+    uint32_t i;
+
+    for (i = 0U; i < 3U; i++)
+    {
+        if (candidates[i] > worst)
+        {
+            worst = candidates[i];
+        }
+    }
+
+    return worst;
+}
+
+static void service_auto_save(void)
+{
+    encoder_calibration_t effective;
+    encoder_cal_quality_t quality;
+    uint32_t irq_mask;
+    uint32_t solves;
+    bool locked;
+
+    if (s_autosave_done || !capture_is_idle())
+    {
+        return;
+    }
+
+    irq_mask = DisableGlobalIRQ();
+    locked = s_runtime_trim.has_locked;
+    solves = s_runtime_trim.solve_count;
+    encoder_runtime_trim_apply(&s_factory_calibration, &s_runtime_trim, &effective);
+    quality.sample_count = solves;
+    quality.status = encoder_result.status;
+    quality.mag16 = encoder_result.mag16_raw;
+    quality.mag15 = encoder_result.mag15_raw;
+    EnableGlobalIRQ(irq_mask);
+
+    if (!locked || (solves < ENCODER_AUTOSAVE_MIN_SOLVES))
+    {
+        return;
+    }
+
+    /* A board already running from NVM only rewrites if it has actually moved. */
+    if ((encoder_calibration_source == ENCODER_CAL_SOURCE_NVM) &&
+        (centre_drift(&effective, &s_factory_calibration) < ENCODER_AUTOSAVE_CENTRE_COUNTS))
+    {
+        s_autosave_done = true;
+        return;
+    }
+
+    adc_realtime_stop();
+    if (EncoderStorage_SaveFactoryCalibration(&effective, &quality))
+    {
+        /* Deliberately does not re-apply: apply_calibration() would reset the
+         * encoder state and glitch the live output. The trim keeps its deltas, so
+         * the effective calibration is unchanged either way, and the next boot
+         * loads the already-trimmed values with a zero delta. */
+        encoder_calibration_source = ENCODER_CAL_SOURCE_NVM;
+        s_app_status_flags = ENCODER_STATUS_OK;
+    }
+    adc_realtime_start();
+    s_autosave_done = true;
 }
 
 static void service_encoder_capture(void)
@@ -534,6 +646,7 @@ static void service_encoder_capture(void)
 void EncoderApp_Init(void)
 {
     perf_dwt_init();
+    encoder_inl_init(&s_encoder_inl);
     encoder_runtime_trim_init(&s_runtime_trim);
     load_startup_calibration();
 
@@ -551,4 +664,5 @@ void EncoderApp_Service(void)
     publish_realtime_snapshot();
     service_encoder_capture();
     service_encoder_commands();
+    service_auto_save();
 }

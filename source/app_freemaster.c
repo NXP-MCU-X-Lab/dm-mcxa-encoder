@@ -65,6 +65,10 @@ FMSTR_TSA_TABLE_BEGIN(first_table)
         FMSTR_TSA_MEMBER(encoder_result_t, phase16_deg, FMSTR_TSA_FLOAT)
         FMSTR_TSA_MEMBER(encoder_result_t, phase15_deg, FMSTR_TSA_FLOAT)
         FMSTR_TSA_MEMBER(encoder_result_t, coarse_deg, FMSTR_TSA_FLOAT)
+        /* Branch margin gauge: approaches +/-180 as the coarse estimate nears a
+         * Vernier branch boundary, where the published angle is one bad sample
+         * away from jumping 22.5 deg. The most useful single number on the board. */
+        FMSTR_TSA_MEMBER(encoder_result_t, fine_delta_deg, FMSTR_TSA_FLOAT)
         FMSTR_TSA_MEMBER(encoder_result_t, mag16, FMSTR_TSA_FLOAT)
         FMSTR_TSA_MEMBER(encoder_result_t, mag15, FMSTR_TSA_FLOAT)
         FMSTR_TSA_MEMBER(encoder_result_t, mag16_raw, FMSTR_TSA_FLOAT)

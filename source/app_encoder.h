@@ -34,6 +34,31 @@
 #define ENCODER_TRACKING_VEL_MAX_DPS    (216000.0f)
 #define ENCODER_FILTER_HOLD_RESYNC_SAMPLES (50U)
 
+/* Branch-decision guards. Kept here with the rest of the tuning surface so the
+ * host regression can assert against the real values rather than a copy.
+ *
+ * At 6000 rpm the shaft advances 3.6 deg/sample. Nine degrees admits an
+ * instantaneous direction reversal plus model/noise margin; the 150 deg
+ * fine-phase limit keeps 30 deg of distance from the Vernier branch boundary.
+ *
+ * CONFIDENCE_LIMIT is coupled to uncorrected harmonic content: |fine_delta| also
+ * grows with distortion, so on a board with enough 3rd harmonic the guard starts
+ * tripping on healthy samples. `encoder_sim faultmargin` maps that boundary. */
+#define ENCODER_BRANCH_CONFIDENCE_LIMIT_DEG (150.0f)
+#define ENCODER_MOTION_INNOVATION_LIMIT_DEG (9.0f)
+#define ENCODER_FILTER_RESYNC_ERROR_DEG (9.0f)
+
+/* How long the motion gate keeps vetoing after signal loss. The prediction is
+ * extrapolated over the whole outage while the tolerance stays fixed, so its
+ * uncertainty grows as 0.5*a*t^2 and eventually exceeds the 11.25 deg it would
+ * need to tell one Vernier branch from another -- past that point the gate is no
+ * longer discriminating, only delaying. Measured with `encoder_sim highspeed`:
+ * at 2e6 deg/s^2 (0 to 6000 rpm in 18 ms) the gate still passes at 20 samples and
+ * blocks at 30, so recovery stalls until the streak reaches this limit. Borrowing
+ * the observer's 50-sample resync count made a 3 ms outage cost 5 ms of held
+ * position. */
+#define ENCODER_MOTION_INNOVATION_MAX_STREAK (20U)
+
 /* Output hysteresis: if the new filtered angle is within this threshold of the
  * previously published angle, hold the previous value. Eliminates static jitter
  * without perturbing the PLL math. Industry standard approach (AS5048 / iC-MU
@@ -41,12 +66,11 @@
  * Trade-off: motion below ~150 deg/s is reported in steps of the threshold. */
 #define ENCODER_OUTPUT_DEADBAND_DEG (0.015f)
 
-/* Output-stage hysteresis on the published integer angle_counts: if the new
+/* Output-stage hysteresis on the low-latency integer angle_counts: if the new
  * count differs from the last published one by at most this many LSBs in either
- * direction, hold the previous value. Kills the +/-1 LSB digital-floor jitter
- * at rest. Float angle_deg path is unaffected, so downstream velocity / control
- * still sees full resolution. AS5048-style configurable hysteresis idea. */
-#define ENCODER_ANGLE_COUNT_HYSTERESIS  (1)
+ * direction, hold the previous value. Float angle_deg remains the smooth
+ * observer output used by monitoring and velocity estimation. */
+#define ENCODER_ANGLE_COUNT_HYSTERESIS  (3)
 
 /* Mag publication uses a rotor-angle binned window so the published values are
  * the average over one full revolution rather than the instantaneous reading
@@ -55,15 +79,57 @@
  * they fall back to the raw single-sample magnitude. 32 bins -> 11.25 deg each. */
 #define ENCODER_MAG_WINDOW_BINS         (32U)
 #define ENCODER_MAG_WINDOW_FULL_MASK    (0xFFFFFFFFUL)
+/* Centre trim authority. Sized for board-to-board spread, not just drift: the
+ * compiled-in defaults come from one board, and a centre that is wrong by a few
+ * thousand counts destroys the angle rather than merely degrading it. The step
+ * limit applies only after the first lock, where all that remains is thermal
+ * drift -- acquisition takes the measured centre in one go. */
 #define ENCODER_RUNTIME_TRIM_STEP_LIMIT_COUNTS (1.0f)
-#define ENCODER_RUNTIME_TRIM_TOTAL_LIMIT_COUNTS (512.0f)
+#define ENCODER_RUNTIME_TRIM_TOTAL_LIMIT_COUNTS (8192.0f)
 
 /* AGC on T-matrix scale: drives the rotation-mean mag toward 1.0 to compensate
  * for analog amplitude drift between factory cal and runtime (temperature, OPAMP
  * gain, supply). Step limit caps per-revolution change; total limit prevents
- * runaway. +/-0.5 covers +/-50% amplitude drift. */
+ * runaway. +/-0.5 covers +/-50% amplitude drift.
+ *
+ * Note a common amplitude error is nearly harmless on its own -- it cancels in
+ * atan2(sin, cos), measured at under 0.01 deg of extra error from 0.5x to 1.5x
+ * (`encoder_sim bootstrap`). The AGC matters because magnitude is the health
+ * signal everything else gates on, not because the angle needs it. */
 #define ENCODER_RUNTIME_TRIM_GAIN_STEP_LIMIT  (0.02f)
 #define ENCODER_RUNTIME_TRIM_GAIN_TOTAL_LIMIT (0.5f)
+
+/* Reference-free harmonic (INL) correction.
+ *
+ * The cross-residual fine_delta is exactly 16*e15 - 15*e16, with the shaft angle
+ * cancelling out, so it measures the two tracks' phase error and nothing else.
+ * Binning it by one track's own electrical phase and averaging over whole
+ * revolutions isolates that track: the other track lands on 15 (or 16) uniformly
+ * spaced phases per revolution, so low-order harmonics average to their DC value.
+ * This requires full mechanical coverage and excludes orders aliased by 15/16.
+ * No reference encoder or tightly regulated rotation speed is required.
+ *
+ * Blind to eccentricity by construction -- it cancels out of fine_delta -- so
+ * eccentricity needs a separate mechanism.
+ *
+ * 64 bins is 5.625 deg of electrical phase, ~16 samples per cycle of the 4th
+ * harmonic, which is the highest order that carries meaningful amplitude. */
+#define ENCODER_INL_BINS (64U)
+#define ENCODER_INL_MIN_BIN_SAMPLES (16U)
+
+typedef struct _encoder_inl_track
+{
+    float sum[ENCODER_INL_BINS];
+    uint32_t count[ENCODER_INL_BINS];
+    float correction[ENCODER_INL_BINS]; /* deg, subtracted from the measured phase */
+} encoder_inl_track_t;
+
+typedef struct _encoder_inl
+{
+    encoder_inl_track_t t16;
+    encoder_inl_track_t t15;
+    bool valid;
+} encoder_inl_t;
 
 typedef struct _encoder_raw_sample
 {
@@ -111,6 +177,11 @@ typedef struct _encoder_result
     float phase16_deg;
     float phase15_deg;
     float coarse_deg;
+    /* Disagreement between the coarse branch pick and the fine track, in fine-track
+     * degrees. Approaches +/-180 exactly when the coarse estimate sits on a branch
+     * boundary, so it is the branch-confidence signal -- and, binned by rotor
+     * angle, the reference-free harmonic error measurement. */
+    float fine_delta_deg;
     float mag16;                    /* mean over latest revolution (raw before lock) — display only */
     float mag15;
     float mag16_raw;                /* instantaneous track-1 magnitude — AGC feedback + WEAK gate */
@@ -200,6 +271,18 @@ typedef struct _encoder_runtime_trim
     float a1_raw_mag_sum;           /* AGC feedback: window-mean of raw instantaneous mag (track 1) */
     float a2_raw_mag_sum;
     uint32_t raw_mag_count;
+    uint32_t solve_count;           /* windows that produced an update; acquisition progress */
+    /* Consecutive samples the tracking gate has rejected. A lock made on bad data
+     * would otherwise be permanent: the angle it produces is wrong, wrong angles
+     * fail the gate, and a failing gate never re-measures. Long enough here and
+     * the estimator drops back to acquisition and re-earns the lock. */
+    uint32_t blocked_streak;
+    /* Acquisition progress: how many times each channel has crossed its centre,
+     * with a Schmitt band so a parked shaft dithering on the crossing does not
+     * count. Two transitions is one full electrical cycle, which is what min/max
+     * needs before it means the centre rather than the middle of an arc. */
+    uint8_t cross_count[4];
+    uint8_t cross_sign_mask;
     uint32_t window_count;
     uint32_t coverage_mask;
     uint16_t a1_sin_min;
@@ -219,7 +302,11 @@ void encoder_cal_stats_accumulate(encoder_cal_stats_t *stats, const encoder_raw_
 bool encoder_cal_stats_build(const encoder_cal_stats_t *stats,
                              encoder_calibration_t *calibration,
                              uint32_t *status);
+/* Takes the INL table so the captured zero goes through the same correction as
+ * every runtime sample; capturing it uncorrected would offset the published zero
+ * by the correction value at that phase. */
 bool encoder_capture_zero(encoder_calibration_t *calibration,
+                          const encoder_inl_t *inl,
                           const encoder_raw_sample_t *sample,
                           uint32_t *status);
 void encoder_state_init(encoder_state_t *state);
@@ -232,8 +319,21 @@ void encoder_runtime_trim_update(encoder_runtime_trim_t *trim,
                                  const encoder_calibration_t *factory,
                                  const encoder_raw_sample_t *sample,
                                  const encoder_result_t *result);
+void encoder_inl_init(encoder_inl_t *inl);
+/* Takes diag because the table is indexed by each track's RAW transformed phase --
+ * the same quantity the lookup uses inside transform_track. Indexing it by the
+ * zero-referenced phase in encoder_result_t instead offsets every correction by
+ * the stored zero, which makes the estimator diverge rather than converge. */
+void encoder_inl_accumulate(encoder_inl_t *inl,
+                            const encoder_diag_t *diag,
+                            const encoder_result_t *result);
+/* Turns the accumulated bins into a correction table. Fails if any bin is too
+ * thinly populated, which is the honest way to say "you did not rotate enough". */
+bool encoder_inl_solve(encoder_inl_t *inl);
+
 void encoder_process(encoder_state_t *state,
                      const encoder_calibration_t *calibration,
+                     const encoder_inl_t *inl,
                      const encoder_raw_sample_t *sample,
                      encoder_result_t *result,
                      encoder_diag_t *diag);
