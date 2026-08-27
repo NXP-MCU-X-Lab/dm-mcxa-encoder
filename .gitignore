@@ -73,3 +73,6 @@ DebugConfig
 *.pptx
 ~*
 internal
+
+# host test artifacts
+tests/*.csv
