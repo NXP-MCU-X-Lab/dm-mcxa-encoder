@@ -21,18 +21,12 @@
 extern "C" {
 #endif
 
-/* Debug console configuration */
-#define HW_DEBUG_UART_INSTANCE   0U
-#define HW_DEBUG_UART_BAUDRATE   115200U
-#define HW_DEBUG_UART_CLK_ATTACH kFRO_HF_DIV_to_LPUART0
-#define HW_DEBUG_UART_RST        kLPUART0_RST_SHIFT_RSTn
-
 void Hardware_Init(void);
-void Hardware_DebugConsoleInit(void);
 void TestPin_Init(void);
 void TestPin_Set(void);
 void TestPin_Clear(void);
 void Heartbeat_Init(void);
+void Heartbeat_Service(void);
 
 /* SysTick-driven millisecond delay (independent of SDK_DelayAtLeastUs). */
 extern volatile uint32_t g_systick_ms;

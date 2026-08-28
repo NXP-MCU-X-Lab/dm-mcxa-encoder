@@ -42,10 +42,10 @@
 #define  m_interrupts_size             0x00000400
 
 #define  m_text_start                  0x00000400
-#define  m_text_size                   0x0001DC00
+#define  m_text_size                   0x0003BC00
 
 #define  m_data_start                  0x20000000
-#define  m_data_size                   0x00008000
+#define  m_data_size                   0x0000C000
 
 #define  m_sramx0_start                0x04000000;
 #define  m_sramx0_size                 0x00002000;

@@ -61,12 +61,12 @@
 #define FMSTR_COMM_RQUEUE_SIZE  32  // Set to 0 for "default"
 
 //! Support for Application Commands
-#define FMSTR_USE_APPCMD        1  // Enable/disable App.Commands support
+#define FMSTR_USE_APPCMD        0  // Enable/disable App.Commands support
 #define FMSTR_APPCMD_BUFF_SIZE  32  // App.Command data buffer size
 #define FMSTR_MAX_APPCMD_CALLS  4   // How many app.cmd callbacks? (0=disable)
 
 //! Oscilloscope support
-#define FMSTR_USE_SCOPE         2   // Specify number of supported oscilloscopes
+#define FMSTR_USE_SCOPE         0   // Specify number of supported oscilloscopes
 #define FMSTR_MAX_SCOPE_VARS    8   // Specify maximum number of scope variables per one oscilloscope
 
 //! Recorder support
@@ -83,7 +83,7 @@
 #define FMSTR_USE_TSA           1   // Enable TSA functionality
 #define FMSTR_USE_TSA_INROM     1   // TSA tables declared as const (put to ROM)
 #define FMSTR_USE_TSA_SAFETY    1   // Enable/Disable TSA memory protection
-#define FMSTR_USE_TSA_DYNAMIC   1   // Enable/Disable TSA entries to be added also in runtime
+#define FMSTR_USE_TSA_DYNAMIC   0   // Enable/Disable TSA entries to be added also in runtime
 
 //// Pipes as data streaming over FreeMASTER protocol
 //#define FMSTR_USE_PIPES         3   // Specify number of supported pipe objects

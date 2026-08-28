@@ -104,7 +104,7 @@ void Pins_Init(void)
                                                     .driveStrength = kPORT_LowDriveStrength,
                                                     /* Normal drive strength is configured */
                                                     .driveStrength1 = kPORT_NormalDriveStrength,
-                                                    /* Pin is configured as LPUART2_RXD */
+                                                    /* Pin is configured as LPUART0_TXD */
                                                     .mux = kPORT_MuxAlt3,
                                                     /* Digital input enabled */
                                                     .inputBuffer = kPORT_InputBufferEnable,
@@ -130,7 +130,7 @@ void Pins_Init(void)
                                                     .driveStrength = kPORT_LowDriveStrength,
                                                     /* Normal drive strength is configured */
                                                     .driveStrength1 = kPORT_NormalDriveStrength,
-                                                    /* Pin is configured as LPUART2_RXD */
+                                                    /* Pin is configured as LPUART0_RXD */
                                                     .mux = kPORT_MuxAlt2,
                                                     /* Digital input enabled */
                                                     .inputBuffer = kPORT_InputBufferEnable,

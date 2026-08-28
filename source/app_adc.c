@@ -4,7 +4,6 @@
   * SPDX-License-Identifier: BSD-3-Clause
   */
 
-#include "fsl_debug_console.h"
 #include "fsl_lpadc.h"
 #include "fsl_inputmux.h"
 #include "fsl_clock.h"
@@ -39,11 +38,17 @@ typedef struct {
     bool valid;
     uint16_t first;
     uint16_t second;
+    uint32_t sequence;
+    uint32_t cycle;
 } adc_pair_result_t;
+
+extern uint32_t SystemCoreClock;
 
 static adc_sample_callback_t s_sample_callback;
 static volatile uint32_t s_sample_count;
 static volatile uint32_t s_overrun_count;
+static uint32_t s_adc0_sequence;
+static uint32_t s_adc1_sequence;
 static adc_pair_result_t s_adc0_pair;
 static adc_pair_result_t s_adc1_pair;
 
@@ -172,14 +177,22 @@ static void adc_configure_timer(void)
     CTIMER_SetupMatch(ADC_TIMER, ADC_TIMER_MATCH, &matchConfig);
 }
 
-static void adc_reset_realtime_state(void)
+static void adc_reset_pair_state(void)
 {
     s_adc0_pair.valid = false;
     s_adc1_pair.valid = false;
-    s_sample_count = 0U;
-    s_overrun_count = 0U;
+    s_adc0_sequence = 0U;
+    s_adc1_sequence = 0U;
     LPADC_DoResetFIFO(ADC0);
     LPADC_DoResetFIFO(ADC1);
+}
+
+static uint32_t adc_cycle_distance(uint32_t a, uint32_t b)
+{
+    const uint32_t forward = a - b;
+    const uint32_t reverse = b - a;
+
+    return (forward < reverse) ? forward : reverse;
 }
 
 static void adc_publish_if_complete(void)
@@ -188,6 +201,15 @@ static void adc_publish_if_complete(void)
 
     if (!s_adc0_pair.valid || !s_adc1_pair.valid)
     {
+        return;
+    }
+
+    if ((s_adc0_pair.sequence != s_adc1_pair.sequence) ||
+        (adc_cycle_distance(s_adc0_pair.cycle, s_adc1_pair.cycle) >
+         (SystemCoreClock / (ADC_SAMPLE_RATE_HZ * 2U))))
+    {
+        s_overrun_count++;
+        adc_reset_pair_state();
         return;
     }
 
@@ -206,7 +228,9 @@ static void adc_publish_if_complete(void)
     }
 }
 
-static void adc_store_pair(ADC_Type *base, adc_pair_result_t *pair)
+static void adc_store_pair(ADC_Type *base,
+                           adc_pair_result_t *pair,
+                           uint32_t *sequence)
 {
     lpadc_conv_result_t first;
     lpadc_conv_result_t second;
@@ -222,18 +246,34 @@ static void adc_store_pair(ADC_Type *base, adc_pair_result_t *pair)
         return;
     }
 
+    if ((first.commandIdSource != ADC_CMD_NORMAL_A) ||
+        (second.commandIdSource != ADC_CMD_NORMAL_B) ||
+        (first.triggerIdSource != ADC_TRIGGER_ID) ||
+        (second.triggerIdSource != ADC_TRIGGER_ID))
+    {
+        s_overrun_count++;
+        adc_reset_pair_state();
+        return;
+    }
+
     if (pair->valid)
     {
         s_overrun_count++;
+        adc_reset_pair_state();
+        return;
     }
 
     pair->first = first.convValue;
     pair->second = second.convValue;
+    pair->sequence = ++(*sequence);
+    pair->cycle = DWT->CYCCNT;
     pair->valid = true;
     adc_publish_if_complete();
 }
 
-static void adc_handle_irq(ADC_Type *base, adc_pair_result_t *pair)
+static void adc_handle_irq(ADC_Type *base,
+                           adc_pair_result_t *pair,
+                           uint32_t *sequence)
 {
     TestPin_Clear();  /* timing: low = ISR busy */
 
@@ -243,13 +283,12 @@ static void adc_handle_irq(ADC_Type *base, adc_pair_result_t *pair)
     {
         s_overrun_count++;
         LPADC_ClearStatusFlags(base, (uint32_t)kLPADC_ResultFIFO0OverflowFlag);
-        LPADC_DoResetFIFO(base);
-        pair->valid = false;
+        adc_reset_pair_state();
         TestPin_Set();  /* timing: high = idle (overrun path) */
         return;
     }
 
-    adc_store_pair(base, pair);  /* may invoke encoder decode callback */
+    adc_store_pair(base, pair, sequence);  /* may invoke encoder decode callback */
 
     TestPin_Set();  /* timing: high = idle */
 }
@@ -275,16 +314,9 @@ void adc_init(void)
 
     adc_configure_sequences();
     adc_configure_timer();
-    adc_reset_realtime_state();
-
-    PRINTF("=== Encoder Raw ADC Init ===\r\n");
-    PRINTF("ADC0 clock: %d Hz\r\n", CLOCK_GetAdcClkFreq(0));
-    PRINTF("ADC1 clock: %d Hz\r\n", CLOCK_GetAdcClkFreq(1));
-    PRINTF("ADC realtime sample rate: %d Hz\r\n", ADC_SAMPLE_RATE_HZ);
-    PRINTF("A1 SIN: internal OPAMP0_OUT -> ADC0_A2\r\n");
-    PRINTF("A1 COS: internal OPAMP1_OUT -> ADC1_A2\r\n");
-    PRINTF("A2 SIN: external TLV9062 A2_OPA0_OUT -> ADC1_A3\r\n");
-    PRINTF("A2 COS: external TLV9062 A2_OPA1_OUT -> ADC0_A7\r\n");
+    s_sample_count = 0U;
+    s_overrun_count = 0U;
+    adc_reset_pair_state();
 }
 
 void adc_set_sample_callback(adc_sample_callback_t callback)
@@ -294,7 +326,7 @@ void adc_set_sample_callback(adc_sample_callback_t callback)
 
 void adc_realtime_start(void)
 {
-    adc_reset_realtime_state();
+    adc_reset_pair_state();
 
     NVIC_SetPriority(ADC0_IRQn, ADC_IRQ_PRIORITY);
     NVIC_SetPriority(ADC1_IRQn, ADC_IRQ_PRIORITY);
@@ -327,10 +359,10 @@ uint32_t adc_get_overrun_count(void)
 
 void ADC0_IRQHandler(void)
 {
-    adc_handle_irq(ADC0, &s_adc0_pair);
+    adc_handle_irq(ADC0, &s_adc0_pair, &s_adc0_sequence);
 }
 
 void ADC1_IRQHandler(void)
 {
-    adc_handle_irq(ADC1, &s_adc1_pair);
+    adc_handle_irq(ADC1, &s_adc1_pair, &s_adc1_sequence);
 }

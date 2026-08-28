@@ -1,8 +1,8 @@
 /*
-  * Copyright 2025 NXP
-  *
-  * SPDX-License-Identifier: BSD-3-Clause
-  */
+ * Copyright 2025 NXP
+ *
+ * SPDX-License-Identifier: BSD-3-Clause
+ */
 
 #ifndef APP_FREEMASTER_H_
 #define APP_FREEMASTER_H_
@@ -13,16 +13,15 @@
 extern "C" {
 #endif
 
+extern volatile uint8_t fm_command;
+extern volatile uint8_t fm_command_state;
+extern volatile uint32_t fm_command_status;
+extern volatile uint8_t fm_factory_cal_progress;
+extern volatile uint8_t fm_encoder_ready;
+extern volatile uint8_t fm_encoder_stationary;
+
 void AppFreemaster_Init(void);
 
-extern volatile uint8_t fm_reset_ctrl;
-extern volatile uint8_t fm_zero_ctrl;
-extern volatile uint8_t fm_turn_reset_ctrl;
-extern volatile uint8_t fm_factory_cal_ctrl;
-extern volatile uint8_t fm_factory_cal_state;
-extern volatile uint8_t fm_factory_cal_progress;
-extern volatile uint32_t fm_factory_cal_status;
-extern volatile uint8_t fm_encoder_valid;
 #ifdef __cplusplus
 }
 #endif

@@ -145,7 +145,7 @@ static double serrd(double a, double e)
 
 /* Mirrors app_encoder_runtime.c: 1 kHz decimated capture of
  * ENCODER_CAL_SAMPLE_COUNT samples, then solve, then zero on the LAST sample. */
-static int run_factory_cal(const sim_model_t *m, rng_t *rng, const encoder_inl_t *inl,
+static int run_factory_cal(const sim_model_t *m, rng_t *rng,
                            encoder_calibration_t *cal, double *theta_zero)
 {
     encoder_cal_stats_t stats;
@@ -172,7 +172,7 @@ static int run_factory_cal(const sim_model_t *m, rng_t *rng, const encoder_inl_t
         fprintf(stderr, "factory cal solve FAILED, status=0x%X\n", (unsigned)status);
         return 0;
     }
-    if (!encoder_capture_zero(cal, inl, &last, &status)) {
+    if (!encoder_capture_zero(cal, &last, &status)) {
         fprintf(stderr, "zero capture FAILED, status=0x%X\n", (unsigned)status);
         return 0;
     }
@@ -197,7 +197,7 @@ typedef struct {
 #define SLIP_THRESHOLD_DEG (0.4 * (360.0 / (double)ENCODER_TRACK16_CYCLES))
 
 static void run_encoder(const sim_model_t *m, rng_t *rng,
-                        const encoder_calibration_t *cal, const encoder_inl_t *inl,
+                        const encoder_calibration_t *cal,
                         double theta_zero,
                         unsigned long n_samples, run_stats_t *st,
                         FILE *csv, const char *csv_tag)
@@ -217,7 +217,7 @@ static void run_encoder(const sim_model_t *m, rng_t *rng,
         double truth, err, fine_delta;
 
         make_sample(m, theta, m->speed_dps, rng, &s);
-        encoder_process(&state, cal, inl, &s, &res, NULL);
+        encoder_process(&state, cal, &s, &res, NULL);
 
         truth = wrapd(theta - theta_zero);
         err = serrd(res.angle_deg_raw, truth);
@@ -266,8 +266,8 @@ static void mode_slip(void)
         m.a2.h3 = h3_sweep[k]; m.a2.h3_phase_deg = -35.0;
         m.a1.h2 = 0.5 * h3_sweep[k]; m.a2.h2 = 0.5 * h3_sweep[k];
 
-        if (!run_factory_cal(&m, &rng, NULL, &cal, &theta_zero)) continue;
-        run_encoder(&m, &rng, &cal, NULL, theta_zero, n, &st, NULL, NULL);
+        if (!run_factory_cal(&m, &rng, &cal, &theta_zero)) continue;
+        run_encoder(&m, &rng, &cal, theta_zero, n, &st, NULL, NULL);
 
         printf("%-8.3f %-10lu %-12.1f %-12.3f %-12.4f %-13.1f %.0f%%\n",
                h3_sweep[k], st.slips,
@@ -319,9 +319,9 @@ static void mode_sep(void)
         if (cfg[k].t2h) { m.a2.h3 = 0.02; m.a2.h3_phase_deg = -35.0; }
         if (cfg[k].ecc) { m.ecc_mech_deg = 0.05; m.ecc_phase_deg = 70.0; }
 
-        if (!run_factory_cal(&m, &rng, NULL, &cal, &theta_zero)) continue;
+        if (!run_factory_cal(&m, &rng, &cal, &theta_zero)) continue;
         /* 8 full revolutions, uniformly sampled in theta */
-        run_encoder(&m, &rng, &cal, NULL, theta_zero, 8000UL, &st, stdout, cfg[k].tag);
+        run_encoder(&m, &rng, &cal, theta_zero, 8000UL, &st, stdout, cfg[k].tag);
     }
 }
 
@@ -382,8 +382,8 @@ static void mode_calbias(void)
             if (distinct == 0) distinct = -1;   /* effectively dense */
         }
 
-        if (!run_factory_cal(&m, &rng, NULL, &cal, &theta_zero)) continue;
-        run_encoder(&m, &rng, &cal, NULL, theta_zero, 8000UL, &st, NULL, NULL);
+        if (!run_factory_cal(&m, &rng, &cal, &theta_zero)) continue;
+        run_encoder(&m, &rng, &cal, theta_zero, 8000UL, &st, NULL, NULL);
 
         if (cond[k].jitter > 0.0) distinct = -1;   /* jitter destroys commensurability */
         if (distinct > 0)
@@ -421,7 +421,7 @@ static void mode_calcheck(void)
         m.a2.h3 = h3_sweep[k]; m.a2.h3_phase_deg = -35.0;
         m.a1.h2 = 0.5 * h3_sweep[k]; m.a2.h2 = 0.5 * h3_sweep[k];
 
-        if (!run_factory_cal(&m, &rng, NULL, &cal, &theta_zero)) continue;
+        if (!run_factory_cal(&m, &rng, &cal, &theta_zero)) continue;
 
         /* t00 and t11 invert the per-axis amplitude when the ellipse is near
          * axis-aligned, which it is here (t10 << t00). */
@@ -431,145 +431,6 @@ static void mode_calcheck(void)
                (double)cal.a1.center_cos - m.a1.center_cos,
                100.0 * ((1.0 / (double)cal.a1.t00) - m.a1.amp_sin) / m.a1.amp_sin,
                100.0 * ((1.0 / (double)cal.a1.t11) - m.a1.amp_cos) / m.a1.amp_cos);
-    }
-}
-
-/* Does the reference-free harmonic estimator converge, and how much branch margin
- * does it hand back? The correction is evaluated at the measured phase rather than
- * the true one, so each pass leaves a second-order residual -- iterating shows
- * whether that shrinks geometrically or oscillates. */
-/* Refine an INL table by one pass: measure the residual THROUGH the table
- * currently in force, then add the newly measured correction on top. Measuring
- * with the table disabled would just recompute the same first-pass answer
- * forever. Two passes reach the floor; a third adds nothing. */
-static int refine_inl_pass(const sim_model_t *m, rng_t *rng,
-                           const encoder_calibration_t *cal, double theta_zero,
-                           unsigned long n, encoder_inl_t *inl)
-{
-    static encoder_inl_t residual;
-    encoder_state_t state;
-    encoder_result_t res;
-    encoder_diag_t dg;
-    encoder_raw_sample_t s;
-    double theta = theta_zero;
-    const double dtheta = m->speed_dps / (double)ADC_SAMPLE_RATE_HZ;
-    unsigned int bin;
-    unsigned long i;
-
-    encoder_inl_init(&residual);
-    encoder_state_init(&state);
-    for (i = 0UL; i < n; i++) {
-        make_sample(m, theta, m->speed_dps, rng, &s);
-        encoder_process(&state, cal, inl->valid ? inl : NULL, &s, &res, &dg);
-        encoder_inl_accumulate(&residual, &dg, &res);
-        theta += dtheta;
-    }
-    if (!encoder_inl_solve(&residual)) return 0;
-
-    for (bin = 0U; bin < ENCODER_INL_BINS; bin++) {
-        inl->t16.correction[bin] += residual.t16.correction[bin];
-        inl->t15.correction[bin] += residual.t15.correction[bin];
-    }
-    inl->valid = true;
-    return 1;
-}
-
-static void mode_inlfit(double h3)
-{
-    static encoder_inl_t inl;          /* ~1.5 KB, kept off the stack */
-    sim_model_t m;
-    encoder_calibration_t cal;
-    run_stats_t st;
-    rng_t rng;
-    double theta_zero;
-    unsigned int pass;
-
-    rng.s = 0x243F6A8885A308D3ULL;
-    model_defaults(&m);
-    m.a1.h3 = h3; m.a1.h3_phase_deg = 20.0;
-    m.a2.h3 = h3; m.a2.h3_phase_deg = -35.0;
-    m.a1.h2 = 0.5 * h3; m.a2.h2 = 0.5 * h3;
-    m.ecc_mech_deg = 0.05; m.ecc_phase_deg = 70.0;
-
-    encoder_inl_init(&inl);
-    if (!run_factory_cal(&m, &rng, NULL, &cal, &theta_zero)) return;
-
-    printf("# reference-free INL convergence, h3=%.1f%% h2=%.1f%% both tracks, ecc 0.05 deg\n",
-           100.0 * h3, 50.0 * h3);
-    printf("%-6s %-13s %-13s %-14s %-12s %s\n",
-           "pass", "max_err_deg", "rms_err_deg", "peak|fdelta|", "margin_used", "slips");
-
-    for (pass = 0U; pass <= 3U; pass++)
-    {
-        const unsigned long n = 200000UL;   /* 20 s at 10 kHz, ~333 revolutions */
-
-        /* Measure with whatever table we have so far. */
-        run_encoder(&m, &rng, &cal, inl.valid ? &inl : NULL, theta_zero, n, &st, NULL, NULL);
-        printf("%-6u %-13.4f %-13.4f %-14.1f %-12.0f%% %lu\n",
-               pass, st.max_abs_err, st.rms_err, st.max_abs_fine_delta,
-               100.0 * st.max_abs_fine_delta / 180.0, st.slips);
-
-        if (pass == 3U) break;
-
-        if (!refine_inl_pass(&m, &rng, &cal, theta_zero, n, &inl)) {
-            printf("  solve FAILED (thin bin coverage)\n");
-            return;
-        }
-    }
-}
-
-/* ENCODER_BRANCH_CONFIDENCE_LIMIT_DEG guards the branch decision by tripping
- * TRACK_MISMATCH when |fine_delta| approaches the branch boundary. But
- * |fine_delta| also grows with uncorrected harmonic distortion, so the threshold
- * and the board's harmonic content are coupled: past some h3 the guard starts
- * firing on healthy samples, and the encoder freezes intermittently instead of
- * slipping. This maps that boundary with and without the INL table. */
-static void mode_faultmargin(void)
-{
-    static const double h3_sweep[] = { 0.000, 0.010, 0.020, 0.030, 0.040, 0.050, 0.060 };
-    unsigned int k;
-
-    printf("# TRACK_MISMATCH false-trip margin vs harmonic distortion\n");
-    printf("# guard trips at |fine_delta| > %.0f deg\n",
-           (double)ENCODER_BRANCH_CONFIDENCE_LIMIT_DEG);
-    printf("%-7s %-13s %-11s %-13s %-11s %s\n",
-           "h3", "raw_peak", "raw_trips", "inl_peak", "inl_trips", "verdict");
-
-    for (k = 0U; k < sizeof(h3_sweep) / sizeof(h3_sweep[0]); k++) {
-        static encoder_inl_t inl;
-        sim_model_t m;
-        encoder_calibration_t cal;
-        run_stats_t raw_st, inl_st;
-        rng_t rng;
-        double theta_zero;
-        const unsigned long n = 200000UL;
-        const char *verdict;
-
-        rng.s = 0x243F6A8885A308D3ULL;
-        model_defaults(&m);
-        m.a1.h3 = h3_sweep[k]; m.a1.h3_phase_deg = 20.0;
-        m.a2.h3 = h3_sweep[k]; m.a2.h3_phase_deg = -35.0;
-        m.a1.h2 = 0.5 * h3_sweep[k]; m.a2.h2 = 0.5 * h3_sweep[k];
-        m.ecc_mech_deg = 0.05; m.ecc_phase_deg = 70.0;
-
-        encoder_inl_init(&inl);
-        if (!run_factory_cal(&m, &rng, NULL, &cal, &theta_zero)) continue;
-
-        run_encoder(&m, &rng, &cal, NULL, theta_zero, n, &raw_st, NULL, NULL);
-        if (!refine_inl_pass(&m, &rng, &cal, theta_zero, n, &inl) ||
-            !refine_inl_pass(&m, &rng, &cal, theta_zero, n, &inl)) {
-            printf("%-7.3f  INL solve failed\n", h3_sweep[k]);
-            continue;
-        }
-        run_encoder(&m, &rng, &cal, &inl, theta_zero, n, &inl_st, NULL, NULL);
-
-        if (raw_st.mismatch_flagged == 0UL)      verdict = "ok";
-        else if (inl_st.mismatch_flagged == 0UL) verdict = "needs INL";
-        else                                     verdict = "TRIPS EVEN WITH INL";
-
-        printf("%-7.3f %-13.1f %-11lu %-13.1f %-11lu %s\n",
-               h3_sweep[k], raw_st.max_abs_fine_delta, raw_st.mismatch_flagged,
-               inl_st.max_abs_fine_delta, inl_st.mismatch_flagged, verdict);
     }
 }
 
@@ -606,7 +467,7 @@ static void mode_standstill(void)
         m.a1.h2 = 0.5 * h3_sweep[k]; m.a2.h2 = 0.5 * h3_sweep[k];
         m.speed_dps = 0.0;
 
-        if (!run_factory_cal(&m, &rng, NULL, &cal, &theta_zero)) continue;
+        if (!run_factory_cal(&m, &rng, &cal, &theta_zero)) continue;
 
         encoder_state_init(&state);
         {
@@ -619,7 +480,7 @@ static void mode_standstill(void)
                 double counts;
 
                 make_sample(&m, theta_zero, 0.0, &rng, &s);
-                encoder_process(&state, &cal, NULL, &s, &res, NULL);
+                encoder_process(&state, &cal, &s, &res, NULL);
                 if (i == 0UL) reference = res.angle_deg_raw;
                 /* raw solve in counts, bypassing the published hysteresis */
                 counts = serrd(res.angle_deg_raw, reference) *
@@ -694,7 +555,7 @@ static int mode_bootstrap(void)
 
             encoder_runtime_trim_apply(&defaults, &trim, &effective);
             make_sample(&m, theta, 3600.0, &rng, &sample);
-            encoder_process(&state, &effective, NULL, &sample, &result, NULL);
+            encoder_process(&state, &effective, &sample, &result, NULL);
             encoder_runtime_trim_update(&trim, &defaults, &sample, &result);
             if ((lock_sample == 0UL) && trim.has_locked) lock_sample = i + 1UL;
 
@@ -716,7 +577,15 @@ static int mode_bootstrap(void)
             /* 2.0x drives the front end into the ADC rails, which no amount of
              * software calibration recovers -- refusing it is correct. */
             const int expected = (amp_ratio[a] <= 1.5);
-            const int ok = expected ? (trim.has_locked && (err_end < 0.5))
+            /* has_locked and a good angle are not enough to call this bootstrapped.
+             * A board can snap its centre in the first window -- which is all the
+             * angle needs, since amplitude cancels in atan2 -- and then have the
+             * estimator deadlock behind the magnitude gate forever. That is what a
+             * 0.5x board did, and this test called it "bootstraps" while solve_count
+             * sat at 1. Requiring the estimator to keep solving is what makes the
+             * difference visible: a healthy board solves once per revolution. */
+            const int ok = expected ? (trim.has_locked && (err_end < 0.5) &&
+                                       (trim.solve_count >= 100U))
                                     : !trim.has_locked;
 
             /* 600 rpm at 10 kHz is 1000 samples per revolution, so lock_sample
@@ -786,7 +655,7 @@ static int mode_benchstart(void)
             theta = scenario[k].dither_deg * 0.5 * sin(phase);
             encoder_runtime_trim_apply(&defaults, &trim, &effective);
             make_sample(&m, theta, 0.0, &rng, &sample);
-            encoder_process(&state, &effective, NULL, &sample, &result, NULL);
+            encoder_process(&state, &effective, &sample, &result, NULL);
             encoder_runtime_trim_update(&trim, &defaults, &sample, &result);
             if (trim.has_locked && (lock_when[0] == 'n')) lock_when = "in dither";
         }
@@ -797,7 +666,7 @@ static int mode_benchstart(void)
 
             encoder_runtime_trim_apply(&defaults, &trim, &effective);
             make_sample(&m, theta, 3600.0, &rng, &sample);
-            encoder_process(&state, &effective, NULL, &sample, &result, NULL);
+            encoder_process(&state, &effective, &sample, &result, NULL);
             encoder_runtime_trim_update(&trim, &defaults, &sample, &result);
             if (trim.has_locked && (lock_when[0] == 'n')) lock_when = "in spin";
 
@@ -840,8 +709,8 @@ static void mode_inl(void)
     m.ecc_mech_deg = 0.05; m.ecc_phase_deg = 70.0;
 
     printf("config,theta_deg,fine_delta_deg,angle_err_deg\n");
-    if (!run_factory_cal(&m, &rng, NULL, &cal, &theta_zero)) return;
-    run_encoder(&m, &rng, &cal, NULL, theta_zero, 8000UL, &st, stdout, "inl");
+    if (!run_factory_cal(&m, &rng, &cal, &theta_zero)) return;
+    run_encoder(&m, &rng, &cal, theta_zero, 8000UL, &st, stdout, "residual");
     fprintf(stderr, "max_err=%.4f deg  rms_err=%.4f deg  slips=%lu\n",
             st.max_abs_err, st.rms_err, st.slips);
 }
@@ -882,7 +751,7 @@ static void run_highspeed_constant(const sim_model_t *m,
         double filtered_err;
 
         make_sample(m, theta, speed_dps, &rng, &sample);
-        encoder_process(&state, cal, NULL, &sample, &result, NULL);
+        encoder_process(&state, cal, &sample, &result, NULL);
         truth = wrapd(theta - theta_zero);
         control_err = serrd(counts_to_deg(result.angle_counts), truth);
         filtered_err = serrd(result.angle_deg_filtered, truth);
@@ -927,13 +796,13 @@ static int test_fault_hold(const sim_model_t *m,
     encoder_state_init(&state);
     for (i = 0UL; i < 5000UL; i++) {
         make_sample(m, theta, speed_dps, &rng, &sample);
-        encoder_process(&state, cal, NULL, &sample, &result, NULL);
+        encoder_process(&state, cal, &sample, &result, NULL);
         theta += step;
     }
     last_counts = result.angle_counts;
 
     make_sample(m, theta + 15.0, speed_dps, &rng, &sample);
-    encoder_process(&state, cal, NULL, &sample, &result, NULL);
+    encoder_process(&state, cal, &sample, &result, NULL);
     if (((result.status & (ENCODER_STATUS_TRACK_MISMATCH | ENCODER_STATUS_HOLD_LAST)) !=
          (ENCODER_STATUS_TRACK_MISMATCH | ENCODER_STATUS_HOLD_LAST)) ||
         (result.angle_counts != last_counts)) {
@@ -943,7 +812,7 @@ static int test_fault_hold(const sim_model_t *m,
     }
 
     make_sample(m, theta, speed_dps, &rng, &sample);
-    encoder_process(&state, cal, NULL, &sample, &result, NULL);
+    encoder_process(&state, cal, &sample, &result, NULL);
     if (result.status != ENCODER_STATUS_OK) {
         fprintf(stderr, "encoder did not recover after coherent glitch: status=0x%lX\n",
                 (unsigned long)result.status);
@@ -959,7 +828,7 @@ static int test_fault_hold(const sim_model_t *m,
         make_sample(m, branch_theta, speed_dps, &rng, &sample);
         track_sample(&m->a2, phi15, m->noise_lsb, &rng,
                      &sample.a2_sin_raw, &sample.a2_cos_raw);
-        encoder_process(&state, cal, NULL, &sample, &result, NULL);
+        encoder_process(&state, cal, &sample, &result, NULL);
         if (((result.status & (ENCODER_STATUS_TRACK_MISMATCH | ENCODER_STATUS_HOLD_LAST)) !=
              (ENCODER_STATUS_TRACK_MISMATCH | ENCODER_STATUS_HOLD_LAST)) ||
             (result.angle_counts != last_counts)) {
@@ -969,7 +838,7 @@ static int test_fault_hold(const sim_model_t *m,
         }
 
         make_sample(m, branch_theta + step, speed_dps, &rng, &sample);
-        encoder_process(&state, cal, NULL, &sample, &result, NULL);
+        encoder_process(&state, cal, &sample, &result, NULL);
         if (result.status != ENCODER_STATUS_OK) {
             fprintf(stderr, "encoder did not recover after branch fault: status=0x%lX\n",
                     (unsigned long)result.status);
@@ -979,7 +848,7 @@ static int test_fault_hold(const sim_model_t *m,
 
     last_counts = result.angle_counts;
     memset(&sample, 0, sizeof(sample));
-    encoder_process(&state, cal, NULL, &sample, &result, NULL);
+    encoder_process(&state, cal, &sample, &result, NULL);
     if (((result.status & (ENCODER_STATUS_ADC_RAIL | ENCODER_STATUS_HOLD_LAST)) !=
          (ENCODER_STATUS_ADC_RAIL | ENCODER_STATUS_HOLD_LAST)) ||
         (result.angle_counts != last_counts)) {
@@ -989,10 +858,10 @@ static int test_fault_hold(const sim_model_t *m,
     }
 
     for (i = 0UL; i < ENCODER_FILTER_HOLD_RESYNC_SAMPLES; i++) {
-        encoder_process(&state, cal, NULL, &sample, &result, NULL);
+        encoder_process(&state, cal, &sample, &result, NULL);
     }
     make_sample(m, theta + 90.0, speed_dps, &rng, &sample);
-    encoder_process(&state, cal, NULL, &sample, &result, NULL);
+    encoder_process(&state, cal, &sample, &result, NULL);
     if (result.status != ENCODER_STATUS_OK) {
         fprintf(stderr, "encoder did not reacquire after prolonged fault: status=0x%lX\n",
                 (unsigned long)result.status);
@@ -1037,7 +906,7 @@ static int test_dynamic_profile(const sim_model_t *m,
             speed_dps = 36000.0; /* Deliberately abrupt reversal. */
 
         make_sample(m, theta, speed_dps, &rng, &sample);
-        encoder_process(&state, cal, NULL, &sample, &result, NULL);
+        encoder_process(&state, cal, &sample, &result, NULL);
         truth = wrapd(theta - theta_zero);
         control_err = fabs(serrd(counts_to_deg(result.angle_counts), truth));
         filtered_err = fabs(serrd(result.angle_deg_filtered, truth));
@@ -1095,7 +964,7 @@ static int test_short_outage_recovery(const sim_model_t *m,
         encoder_state_init(&state);
         for (i = 0UL; i < 2000UL; i++) {
             make_sample(m, theta, speed_dps, &rng, &sample);
-            encoder_process(&state, cal, NULL, &sample, &result, NULL);
+            encoder_process(&state, cal, &sample, &result, NULL);
             theta += speed_dps / (double)ADC_SAMPLE_RATE_HZ;
         }
 
@@ -1103,7 +972,7 @@ static int test_short_outage_recovery(const sim_model_t *m,
         for (i = 0UL; i < outage[k]; i++) {
             encoder_raw_sample_t dead;
             memset(&dead, 0, sizeof(dead));
-            encoder_process(&state, cal, NULL, &dead, &result, NULL);
+            encoder_process(&state, cal, &dead, &result, NULL);
             speed_dps += accel / (double)ADC_SAMPLE_RATE_HZ;
             theta += speed_dps / (double)ADC_SAMPLE_RATE_HZ;
         }
@@ -1111,7 +980,7 @@ static int test_short_outage_recovery(const sim_model_t *m,
         /* Healthy samples again: count how many before the encoder publishes. */
         for (i = 0UL; i < 200UL; i++) {
             make_sample(m, theta, speed_dps, &rng, &sample);
-            encoder_process(&state, cal, NULL, &sample, &result, NULL);
+            encoder_process(&state, cal, &sample, &result, NULL);
             speed_dps += accel / (double)ADC_SAMPLE_RATE_HZ;
             theta += speed_dps / (double)ADC_SAMPLE_RATE_HZ;
             if (result.status == ENCODER_STATUS_OK) { recover = i + 1UL; break; }
@@ -1121,79 +990,6 @@ static int test_short_outage_recovery(const sim_model_t *m,
         else {
             const int ok = (recover <= 3UL);
             printf("%-10lu %-12.0f %-14lu %s\n", outage[k], accel, recover, ok ? "ok" : "STALL");
-            if (!ok) passed = 0;
-        }
-    }
-    return passed;   /* boolean: mode_highspeed folds this into its own flag */
-}
-
-/* turn_count and angle_counts must agree about which side of the wrap they are
- * on. They used to come from different angle sources -- counts from the raw
- * Vernier solve, the turn counter from the observer output -- so while the
- * observer lagged through a wrap the pair could differ by a whole revolution,
- * which one T-Format ID3 frame would publish as ABS and ABM disagreeing by 360
- * deg. Sweeps both directions across the boundary. */
-static int test_multiturn(const sim_model_t *m,
-                          const encoder_calibration_t *cal,
-                          double theta_zero)
-{
-    static const double rpm[] = { 600.0, 6000.0, -6000.0 };
-    unsigned int k;
-    int passed = 1;
-
-    printf("%-9s %-11s %-15s %-15s %s\n",
-           "rpm", "turns_seen", "max_unwrap_err", "max_pair_err", "verdict");
-    for (k = 0U; k < sizeof(rpm) / sizeof(rpm[0]); k++) {
-        encoder_state_t state;
-        encoder_result_t result;
-        encoder_raw_sample_t sample;
-        rng_t rng = { 0x8A5CD789635D2DFFULL };
-        const double speed_dps = rpm[k] * 6.0;
-        const double step = speed_dps / (double)ADC_SAMPLE_RATE_HZ;
-        /* Start half a revolution away from the wrap. Zero capture parks the rotor
-         * exactly on the boundary, where the first reading may land on either side
-         * and so defines the multi-turn origin one revolution either way -- an
-         * origin convention, not an error, but it masks real inconsistencies. */
-        const double theta_start = theta_zero + 180.0;
-        double theta = theta_start;
-        double max_pair_err = 0.0;
-        double max_unwrap_err = 0.0;
-        double unwrap_ref = 0.0;
-        unsigned long i;
-        /* Not a whole number of revolutions: landing exactly on the wrap boundary
-         * makes "how many turns should that be" genuinely ambiguous. */
-        const unsigned long n = 59950UL;
-
-        encoder_state_init(&state);
-        for (i = 0UL; i < n; i++) {
-            double pair_err, unwrap_err;
-
-            make_sample(m, theta, speed_dps, &rng, &sample);
-            encoder_process(&state, cal, NULL, &sample, &result, NULL);
-
-            /* multi_turn_deg and (turn_count, angle_counts) must describe the
-             * same position; a whole-revolution disagreement is the failure. */
-            pair_err = fabs(result.multi_turn_deg -
-                            ((double)result.turn_count * 360.0 +
-                             counts_to_deg(result.angle_counts)));
-            /* and the pair must track the true unwrapped shaft angle, measured
-             * against the position where the run started */
-            if (i == 10UL) unwrap_ref = result.multi_turn_deg - (theta - theta_start);
-            unwrap_err = fabs(result.multi_turn_deg - (theta - theta_start) - unwrap_ref);
-            if (i > 10UL) {
-                if (pair_err > max_pair_err) max_pair_err = pair_err;
-                if (unwrap_err > max_unwrap_err) max_unwrap_err = unwrap_err;
-            }
-            theta += step;
-        }
-
-        {
-            /* float32 holds ~0.02 deg at 600 revolutions, so 0.5 deg is generous
-             * for precision while still catching a 360 deg inconsistency. */
-            const int ok = (max_pair_err < 1.0) && (max_unwrap_err < 0.5);
-            printf("%-9.0f %-11ld %-15.4f %-15.4f %s\n",
-                   rpm[k], (long)result.turn_count,
-                   max_unwrap_err, max_pair_err, ok ? "ok" : "FAIL");
             if (!ok) passed = 0;
         }
     }
@@ -1216,7 +1012,7 @@ static int mode_highspeed(void)
     model.a1.h2 = 0.01; model.a2.h2 = 0.01;
     model.ecc_mech_deg = 0.05; model.ecc_phase_deg = 70.0;
 
-    if (!run_factory_cal(&model, &rng, NULL, &calibration, &theta_zero)) return 1;
+    if (!run_factory_cal(&model, &rng, &calibration, &theta_zero)) return 1;
 
     printf("%-9s %-15s %-16s %-12s %s\n",
            "rpm", "control_max_deg", "filtered_max_deg", "max_step_deg", "status");
@@ -1248,12 +1044,10 @@ static int mode_highspeed(void)
     {
         const int fault_ok = test_fault_hold(&model, &calibration, theta_zero);
         const int recovery_ok = test_short_outage_recovery(&model, &calibration, theta_zero);
-        const int multiturn_ok = test_multiturn(&model, &calibration, theta_zero);
 
         printf("fault_hold %s\n", fault_ok ? "PASS" : "FAIL");
         if (!fault_ok) passed = 0;
         if (!recovery_ok) passed = 0;
-        if (!multiturn_ok) passed = 0;
     }
     return passed ? 0 : 1;
 }
@@ -1267,12 +1061,10 @@ int main(int argc, char **argv)
     else if (strcmp(mode, "inl") == 0)  mode_inl();
     else if (strcmp(mode, "calbias") == 0) mode_calbias();
     else if (strcmp(mode, "calcheck") == 0) mode_calcheck();
-    else if (strcmp(mode, "inlfit") == 0) mode_inlfit((argc > 2) ? atof(argv[2]) : 0.02);
-    else if (strcmp(mode, "faultmargin") == 0) mode_faultmargin();
     else if (strcmp(mode, "standstill") == 0) mode_standstill();
     else if (strcmp(mode, "bootstrap") == 0) return mode_bootstrap();
     else if (strcmp(mode, "benchstart") == 0) return mode_benchstart();
     else if (strcmp(mode, "highspeed") == 0) return mode_highspeed();
-    else { fprintf(stderr, "usage: %s [slip|sep|inl|calbias|calcheck|inlfit|highspeed]\n", argv[0]); return 2; }
+    else { fprintf(stderr, "usage: %s [slip|sep|inl|calbias|calcheck|standstill|bootstrap|benchstart|highspeed]\n", argv[0]); return 2; }
     return 0;
 }

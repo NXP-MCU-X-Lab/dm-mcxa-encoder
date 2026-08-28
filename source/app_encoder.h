@@ -20,6 +20,18 @@
 #define ENCODER_STATUS_CAL_STORAGE_INVALID (1UL << 7)
 #define ENCODER_STATUS_FACTORY_CAL_REQUIRED (1UL << 8)
 
+/* The bits that mean "this sample's position is untrustworthy", as opposed to
+ * "this board has never been through a factory step". Only the former may
+ * invalidate an output sample: a board running on compiled-in defaults carries
+ * CAL_STORAGE_INVALID | FACTORY_CAL_REQUIRED for its entire life, and folding
+ * those in made every never-calibrated board report a permanent fault -- including
+ * long after the online estimator had converged to full accuracy. */
+#define ENCODER_STATUS_POSITION_INVALID_MASK                                   \
+    (ENCODER_STATUS_NOT_CALIBRATED | ENCODER_STATUS_TRACK16_WEAK |             \
+     ENCODER_STATUS_TRACK15_WEAK | ENCODER_STATUS_ADC_RAIL |                   \
+     ENCODER_STATUS_TRACK_MISMATCH | ENCODER_STATUS_CAL_FAILED |               \
+     ENCODER_STATUS_HOLD_LAST)
+
 /* Type-II tracking observer (software PLL) for published angle, matching the
  * canonical resolver-to-digital converter loop (AD2S1210 / TI SPRAA94 / etc.).
  * - BW   sets closed-loop bandwidth in Hz.
@@ -43,7 +55,7 @@
  *
  * CONFIDENCE_LIMIT is coupled to uncorrected harmonic content: |fine_delta| also
  * grows with distortion, so on a board with enough 3rd harmonic the guard starts
- * tripping on healthy samples. `encoder_sim faultmargin` maps that boundary. */
+ * tripping on healthy samples. */
 #define ENCODER_BRANCH_CONFIDENCE_LIMIT_DEG (150.0f)
 #define ENCODER_MOTION_INNOVATION_LIMIT_DEG (9.0f)
 #define ENCODER_FILTER_RESYNC_ERROR_DEG (9.0f)
@@ -72,13 +84,6 @@
  * observer output used by monitoring and velocity estimation. */
 #define ENCODER_ANGLE_COUNT_HYSTERESIS  (3)
 
-/* Mag publication uses a rotor-angle binned window so the published values are
- * the average over one full revolution rather than the instantaneous reading
- * at the current rotor angle. Once every bin has been visited at least once,
- * mag16/mag15 expose mean + min + max across the latest revolution; before that
- * they fall back to the raw single-sample magnitude. 32 bins -> 11.25 deg each. */
-#define ENCODER_MAG_WINDOW_BINS         (32U)
-#define ENCODER_MAG_WINDOW_FULL_MASK    (0xFFFFFFFFUL)
 /* Centre trim authority. Sized for board-to-board spread, not just drift: the
  * compiled-in defaults come from one board, and a centre that is wrong by a few
  * thousand counts destroys the angle rather than merely degrading it. The step
@@ -98,38 +103,6 @@
  * signal everything else gates on, not because the angle needs it. */
 #define ENCODER_RUNTIME_TRIM_GAIN_STEP_LIMIT  (0.02f)
 #define ENCODER_RUNTIME_TRIM_GAIN_TOTAL_LIMIT (0.5f)
-
-/* Reference-free harmonic (INL) correction.
- *
- * The cross-residual fine_delta is exactly 16*e15 - 15*e16, with the shaft angle
- * cancelling out, so it measures the two tracks' phase error and nothing else.
- * Binning it by one track's own electrical phase and averaging over whole
- * revolutions isolates that track: the other track lands on 15 (or 16) uniformly
- * spaced phases per revolution, so low-order harmonics average to their DC value.
- * This requires full mechanical coverage and excludes orders aliased by 15/16.
- * No reference encoder or tightly regulated rotation speed is required.
- *
- * Blind to eccentricity by construction -- it cancels out of fine_delta -- so
- * eccentricity needs a separate mechanism.
- *
- * 64 bins is 5.625 deg of electrical phase, ~16 samples per cycle of the 4th
- * harmonic, which is the highest order that carries meaningful amplitude. */
-#define ENCODER_INL_BINS (64U)
-#define ENCODER_INL_MIN_BIN_SAMPLES (16U)
-
-typedef struct _encoder_inl_track
-{
-    float sum[ENCODER_INL_BINS];
-    uint32_t count[ENCODER_INL_BINS];
-    float correction[ENCODER_INL_BINS]; /* deg, subtracted from the measured phase */
-} encoder_inl_track_t;
-
-typedef struct _encoder_inl
-{
-    encoder_inl_track_t t16;
-    encoder_inl_track_t t15;
-    bool valid;
-} encoder_inl_t;
 
 typedef struct _encoder_raw_sample
 {
@@ -182,12 +155,8 @@ typedef struct _encoder_result
      * boundary, so it is the branch-confidence signal -- and, binned by rotor
      * angle, the reference-free harmonic error measurement. */
     float fine_delta_deg;
-    float mag16;                    /* mean over latest revolution (raw before lock) — display only */
-    float mag15;
-    float mag16_raw;                /* instantaneous track-1 magnitude — AGC feedback + WEAK gate */
-    float mag15_raw;                /* instantaneous track-2 magnitude — AGC feedback + WEAK gate */
-    int32_t turn_count;             /* signed multi-turn revolution counter, RAM-only */
-    float multi_turn_deg;           /* turn_count * 360 + angle_deg, signed; wraps with int32 saturation */
+    float mag16_raw;                /* instantaneous track-1 magnitude - AGC feedback + WEAK gate */
+    float mag15_raw;                /* instantaneous track-2 magnitude - AGC feedback + WEAK gate */
     uint32_t status;
 } encoder_result_t;
 
@@ -231,14 +200,6 @@ typedef struct _encoder_cal_stats
     encoder_track_cal_stats_t a2;
 } encoder_cal_stats_t;
 
-typedef struct _encoder_mag_window
-{
-    float bins[ENCODER_MAG_WINDOW_BINS];
-    float sum;
-    uint32_t coverage_mask;
-    bool full_revolution_seen;
-} encoder_mag_window_t;
-
 typedef struct _encoder_state
 {
     float last_angle_deg;
@@ -247,15 +208,9 @@ typedef struct _encoder_state
     float tracking_velocity_dps;    /* tracking observer velocity integrator (deg/s) */
     uint32_t last_angle_counts;
     uint32_t hold_last_streak;      /* consecutive bad samples — drives filter resync */
-    encoder_mag_window_t mag_window_a1;
-    encoder_mag_window_t mag_window_a2;
-    int32_t turn_count;             /* multi-turn revolution counter, RAM-only */
     bool has_valid_angle;
     bool filter_initialized;
 } encoder_state_t;
-
-/* Reset the multi-turn counter without disturbing the rest of the encoder state. */
-void encoder_state_reset_turn_count(encoder_state_t *state);
 
 typedef struct _encoder_runtime_trim
 {
@@ -302,11 +257,7 @@ void encoder_cal_stats_accumulate(encoder_cal_stats_t *stats, const encoder_raw_
 bool encoder_cal_stats_build(const encoder_cal_stats_t *stats,
                              encoder_calibration_t *calibration,
                              uint32_t *status);
-/* Takes the INL table so the captured zero goes through the same correction as
- * every runtime sample; capturing it uncorrected would offset the published zero
- * by the correction value at that phase. */
 bool encoder_capture_zero(encoder_calibration_t *calibration,
-                          const encoder_inl_t *inl,
                           const encoder_raw_sample_t *sample,
                           uint32_t *status);
 void encoder_state_init(encoder_state_t *state);
@@ -319,21 +270,8 @@ void encoder_runtime_trim_update(encoder_runtime_trim_t *trim,
                                  const encoder_calibration_t *factory,
                                  const encoder_raw_sample_t *sample,
                                  const encoder_result_t *result);
-void encoder_inl_init(encoder_inl_t *inl);
-/* Takes diag because the table is indexed by each track's RAW transformed phase --
- * the same quantity the lookup uses inside transform_track. Indexing it by the
- * zero-referenced phase in encoder_result_t instead offsets every correction by
- * the stored zero, which makes the estimator diverge rather than converge. */
-void encoder_inl_accumulate(encoder_inl_t *inl,
-                            const encoder_diag_t *diag,
-                            const encoder_result_t *result);
-/* Turns the accumulated bins into a correction table. Fails if any bin is too
- * thinly populated, which is the honest way to say "you did not rotate enough". */
-bool encoder_inl_solve(encoder_inl_t *inl);
-
 void encoder_process(encoder_state_t *state,
                      const encoder_calibration_t *calibration,
-                     const encoder_inl_t *inl,
                      const encoder_raw_sample_t *sample,
                      encoder_result_t *result,
                      encoder_diag_t *diag);

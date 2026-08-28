@@ -1,175 +1,172 @@
-# NXP MCXA344 双轨感应式编码器
+# NXP MCXA344 双轨感应式绝对编码器
 
 > [English](README.md) | 中文
 
-这是一个面向 HW_V2 双轨感应式绝对编码器的参考固件和上位机仪表板项目，目标器件口径为
-NXP MCXA34x / MCXA344 系列。固件将 16/15 Vernier 双轨信号解算为单圈绝对角，
-在 RAM 中累计多圈位置，并通过 FreeMASTER 暴露实时数据。
+这是面向 HW_V2 双轨感应式绝对编码器的固件，目标器件为 NXP MCXA344。固件
+以 10 kHz 采集 16/15 Vernier 双轨信号，并通过 2.5 Mbit/s T-Format 接口
+输出原生 16-bit 单圈位置。
 
 ![HW_V2 感应式编码器硬件](doc/HW_V2.jpg)
 
 ## 功能
 
-- 16/15 Vernier 单圈绝对角解算，输出 16-bit 角度计数
-- 每条 `(sin, cos)` 轨道使用 Heydemann 风格椭圆校正
-- Type-II 软件 PLL 输出滤波角度和角速度
-- 输出层 dead-band / hysteresis：`0.015 deg` 角度门限和 `1` count 门限
-- 加载有效 NVM 标定后，运行时监测幅值并做 AGC trim
-- RAM-only 有符号多圈计数器，支持上位机命令清零
-- FreeMASTER TSA 变量、Web 仪表板和桌面 `.pmpx` 工程
-- 使用 DWT CYCCNT 统计 `encoder_process()` 和整个 ADC ISR 回调耗时
+- 16/15 Vernier 单圈绝对角解算
+- 原生 16-bit 位置输出，每圈 `0..65535` count
+- 每条轨道的偏置、增益、正交和椭圆误差校正
+- 运行时中心与增益自适应，并自动持久化
+- 分支校验、最后有效位置保持和受控重新锁定
+- LPUART2/eDMA 实现标准 T-Format ID0/1/2/3/6/7/8/C/D
+- 持久化单圈零位和 128-byte 编码器 EEPROM 镜像
+- LPUART0 简化 FreeMASTER 状态与服务页面
+- DWT 执行时间统计和双 ADC 样本配对诊断
 
 ## 硬件
 
-| 项目 | 值 |
+| 项目 | 配置 |
 | --- | --- |
-| MCU 系列 | NXP MCXA34x / MCXA344 固件目标 |
-| 当前 Keil target 说明 | `ind_encoder.uvprojx` 配置为 `MCXA343VLH` / `NXP.MCXA343_DFP.25.09.00`，源码 define 使用 `CPU_MCXA344VLL` 和 `MCXA344_SERIES` |
-| 核心时钟 | Cortex-M33 + FPU，固件时钟配置为 180 MHz |
+| MCU | NXP MCXA344VLL，Cortex-M33 + FPU，180 MHz |
 | 模拟前端 | MCXA OPAMP0/1 加外部 TLV9062 |
-| ADC 采样 | LPADC0/1，4 个 raw 通道，10 kHz，CTIMER0 触发，8x 硬件平均 |
-| 上位机链路 | FreeMASTER over LPUART0，115200 8N1，与 debug console 共用 |
-| 持久化标定 | Flash 末 8 KB 区域，128-byte slot，按 sequence 选择最新有效块，CRC32 校验 |
+| 采样 | LPADC0/1，四通道，CTIMER0 触发，10 kHz |
+| 持久化存储 | 两个 8 KB Flash 扇区，256-byte 快照，sequence 与 CRC32 |
+| FreeMASTER | LPUART0，115200 baud，8N1 |
+| T-Format | LPUART2，2,500,000 baud，8N1 |
 
 ### 信号接线
 
-| 信号 | 引脚 |
+| 信号 | MCU 连接 |
 | --- | --- |
 | A1 SIN | OPAMP0_OUT -> P2_15 (ADC0_A2) |
 | A1 COS | OPAMP1_OUT -> P2_19 (ADC1_A2) |
-| A2 SIN | TLV9062 外部运放 -> P2_6 (ADC1_A3) |
-| A2 COS | TLV9062 外部运放 -> P2_7 (ADC0_A7) |
-| FreeMASTER UART | LPUART0 |
-| Heartbeat LED | P3_11，100 ms 翻转一次 |
-| ISR probe | P3_0，可选，用示波器观察 ISR 时序 |
+| A2 SIN | TLV9062 输出 -> P2_6 (ADC1_A3) |
+| A2 COS | TLV9062 输出 -> P2_7 (ADC0_A7) |
+| T-Format TX | P2_2，LPUART2_TXD |
+| T-Format RX | P2_3，LPUART2_RXD |
+| RS-485 方向 | P3_12，`DIR_485`；低电平接收，高电平发送 |
+| 主循环心跳 | P3_11 |
+| ADC ISR 时序探针 | P3_0 |
 
 ## 仓库结构
 
 ```text
 source/
-  app_adc.{h,c}              CTIMER0 触发的 LPADC 采样
-  app_encoder.{h,c}          无 OS/HAL 依赖的编码器核心算法
-  app_encoder_runtime.{h,c}  ADC 回调、运行时 trim、命令、快照、性能统计
-  app_encoder_storage.{h,c}  Flash 标定 slot 存储和 CRC32 校验
-  app_encoder_defaults.c     板级默认标定值
-  app_freemaster.{h,c}       FreeMASTER 初始化和 TSA 变量表
-  hardware_init.{h,c}        OPAMP、引脚、时钟、调试 UART
-  main.c                     上电入口和服务循环
+  app_adc.{h,c}              双 LPADC 同步采样
+  app_encoder.{h,c}          与硬件无关的编码器算法
+  app_encoder_runtime.{h,c}  运行时自适应、命令与持久化
+  app_encoder_storage.{h,c}  双扇区快照与 CRC32
+  app_encoder_defaults.c     板级默认标定
+  app_tformat.{h,c}          LPUART2/eDMA T-Format responder
+  app_freemaster.{h,c}       FreeMASTER 初始化与 TSA 表
+  hardware_init.{h,c}        时钟、OPAMP、引脚与辅助 GPIO
+
+tools/
+  tformat_test.py            标准 T-Format Python 主站
+
+tests/
+  encoder_sim.c              算法与动态工况仿真
+  tformat_sim.c              协议向量与状态机测试
+  storage_sim.c              Flash 快照与掉电注入测试
+  stubs/                     最小 MCU 头文件，使 app_tformat.c 可在主机编译
 
 freemaster/
-  index.html                 Web 仪表板
+  index.html                 简化操作与服务页面
   digital_encoder.pmpx       FreeMASTER 桌面工程
-  simple-jsonrpc-js.js       JSON-RPC over WebSocket 辅助库
-
-doc/
-  HW_V2.jpg                  HW_V2 硬件照片
-  AN15044.pdf                参考应用笔记
-  MCXA34x_based_Inductive_Encoder_v1.1.docx
 ```
 
 ## 编译和烧录
 
-可以直接打开 Keil 工程，也可以用命令行构建：
+安装 Keil MDK、ARMCLANG 6.23 和 `NXP.MCXA344_DFP.25.06.00`。在 Keil 中
+打开 `ind_encoder.uvprojx` 并构建 target `ind_encoder`，或运行：
 
 ```powershell
 C:\Keil_v5\UV4\uVision.com -b ind_encoder.uvprojx -t ind_encoder -j0
 ```
 
-当前期望工具链：
+工程目标为 `MCXA344VLL`，下载算法为 `MCXA34X_256.FLM`。应用镜像范围限制为
+`0x00000000..0x0003BFFF`，`0x0003C000..0x0003FFFF` 保留给编码器持久化数据。
 
-- Keil MDK，ARMCLANG V6.23
-- 工程文件当前引用 NXP MCXA343 DFP 25.09.00
-- MCXA344 系列 SDK 头文件和源码已随仓库提交
+## T-Format 接口
 
-工程输出名为 `ind_encoder`。scatter file 会为工厂标定存储保留 128 KB Flash 镜像末尾的 8 KB。
+协议响应器采用 [NXP T-Format 公共定义](https://github.com/nxp-mcuxpresso/mcuxsdk-core/blob/release/26.03.00-pvw2/drivers/flexio/t-format/fsl_flexio_t-format.h)
+以及 [TI T-Format 参考设计](https://www.ti.com/lit/ug/tidue74f/tidue74f.pdf)中的字段布局。
 
-## 标定和使用
+| ID | CF | 功能 | 响应长度 |
+| --- | --- | --- | --- |
+| ID0 | `0x02` | 单圈位置 | 6 bytes |
+| ID1 | `0x8A` | 多圈字段，固定为 0 | 6 bytes |
+| ID2 | `0x92` | 编码器 ID，`ENID=0x10` | 4 bytes |
+| ID3 | `0x1A` | 位置、ENID、ABM 和 ALMC | 11 bytes |
+| ID6 | `0x32` | EEPROM 写入 | 4 bytes |
+| ID7 | `0xBA` | 错误复位 | 6 bytes |
+| ID8 | `0xC2` | 设置并保存单圈零位 | 6 bytes |
+| IDC | `0x62` | 多圈与错误复位；ABM 保持为 0 | 6 bytes |
+| IDD | `0xEA` | EEPROM 读取 | 4 bytes |
 
-### 首次工厂标定
+上表每个 CF 字节都是推导出来的，不是抄的：`sink code 2 | (ID << 3) |
+(ID 位的奇校验 << 7)`。帧长度、ALMC 位图、SF 编码器错误字段、ADF 地址/busy
+掩码以及 CRC 多项式，均与上面链接的 NXP 定义一致。唯一没有规范来源的值是
+`ENID` —— `0x10` 只是占位值，必须与驱动器约定，因为驱动器据此推断分辨率。
 
-1. 接好 HW_V2 感应式编码器硬件并上电。
-2. 打开 `freemaster/index.html` 或 `freemaster/digital_encoder.pmpx`。
-3. FreeMASTER 连接 LPUART0，波特率 115200。
-4. 点击 **Factory Cal**。
-5. 在采集窗口内至少完整旋转一圈机械角。
-6. 停在目标零位。最后一帧采样会作为工厂零位。
+串口格式为 `2,500,000 baud, 8N1, idle high, LSB first`。`ABS0/ABS1`
+承载原生 16-bit 计数，`ABS2=0`，多圈字段始终为 0。CRC 多项式为
+`x^8 + 1`，初值为 0。位置无效或过期时保持最后有效值，并通过 SF 和 ALMC
+报告 Counting Error。
 
-固件会采集 `8192` 个降采样后的标定样本，求解两条轨道的椭圆校正，捕获零位，
-写入一个 128-byte 标定 slot，并在下次启动时选择 sequence 最大的有效块。
+EEPROM 写入后 ADF busy 位保持有效，直到 128-byte 镜像写入 Flash。配置写入
+只在转轴静止时执行。不支持的控制字段会被忽略，协议串口不会发送主动文本。
 
-### 运行时命令
+### Python 主站
 
-| 命令 | 作用 |
-| --- | --- |
-| **Zero Here** | 将当前角度作为 RAM 零位；复位后丢失 |
-| **Reset Turns** | 清零 RAM-only 多圈计数器 |
-| **Factory Cal** | 重新执行工厂标定并写入 Flash |
-| **MCU Reset** | 触发 NVIC 系统复位 |
+安装 pyserial，并将 `COM78` 替换为实际串口：
 
-## FreeMASTER 仪表板
+```powershell
+python -m pip install pyserial
+python tools\tformat_test.py --self-test
+python tools\tformat_test.py --port COM78 --data-id 0 --count 1000 --verbose
+python tools\tformat_test.py --port COM78 --data-id 3 --count 1000
+python tools\tformat_test.py --port COM78 --reset position
+python tools\tformat_test.py --port COM78 --eeprom-write 0x20 0xA5
+python tools\tformat_test.py --port COM78 --eeprom-read 0x20
+```
 
-仪表板读取固件通过 TSA 暴露的变量：
+## 标定和操作
 
-- `encoder_result.angle_deg`、`angle_counts`、`multi_turn_deg` 和 `turn_count`
-- `encoder_result.angular_velocity_dps`
-- `encoder_result.mag16`、`mag15`、`mag16_raw` 和 `mag15_raw`
-- `encoder_result.status`
-- `adc_result` raw 通道、采样计数和 overrun 计数
-- DWT 性能计数：`encoder_perf_process_cycles`、`encoder_perf_isr_cycles` 和峰值
+启动时加载 Flash 中 sequence 最新且 CRC32 有效的快照。Flash 为空时，编码器
+先使用板级默认参数，在具备足够旋转覆盖后自动跟踪双轨中心和增益，并在转轴
+静止后保存收敛参数。首次自适应锁定前，T-Format 返回 Counting Error。
 
-状态位会由仪表板解码为 warning 和 fault 状态。
+`Zero & Save` 和 T-Format ID8 要求位置在 0.5 秒内保持于 16 counts 范围。
+固件对 64 个样本求平均，设置单圈零位，并在 Flash 校验成功后确认命令完成。
 
-| 位 | 名称 | 含义 |
-| --- | --- | --- |
-| `0x0001` | `NOT_CALIBRATED` | 当前未加载有效标定 |
-| `0x0002` | `TRACK16_WEAK` | 16 周期轨幅值低于下限 |
-| `0x0004` | `TRACK15_WEAK` | 15 周期轨幅值低于下限 |
-| `0x0008` | `ADC_RAIL` | 至少一个 ADC 通道撞导轨 |
-| `0x0010` | `TRACK_MISMATCH` | 16/15 双轨残差超出容限 |
-| `0x0020` | `CAL_FAILED` | 工厂标定解算失败 |
-| `0x0040` | `HOLD_LAST` | 固件保持上一次有效角度 |
-| `0x0080` | `CAL_STORAGE_INVALID` | NVM 标定 CRC 或块校验失败 |
-| `0x0100` | `FACTORY_CAL_REQUIRED` | 当前使用默认值，需要工厂标定 |
+完整椭圆和正交标定保留在 FreeMASTER 的 Service 区域。该功能在转轴完成整周
+旋转期间采集 8192 个降采样样本，随后保存求解后的标定参数和零位。
+
+## FreeMASTER
+
+打开 `freemaster/digital_encoder.pmpx`，通过 LPUART0、115200 baud 连接并
+打开内嵌网页。主界面仅保留就绪状态、角度、转速、状态和 `Zero & Save`。
+折叠的 Service 区域包含原始 ADC、运行计数、T-Format 计数、工厂标定和配置
+擦除。页面约以 4 Hz 轮询主状态，不使用 Scope 或 Recorder。
 
 ## 配置
 
-主要调参是编译期宏，位于 `source/app_encoder.h` 和 `source/app_adc.h`。
-
-| 宏 | 默认值 | 作用 |
+| 宏 | 值 | 作用 |
 | --- | --- | --- |
-| `ADC_SAMPLE_RATE_HZ` | `10000` | 实时 ADC 采样率；修改时要同步 CTIMER0 配置 |
-| `ENCODER_CAL_SAMPLE_COUNT` | `8192` | 工厂标定样本数 |
-| `ENCODER_TRACKING_BW_HZ` | `100.0f` | Type-II PLL 闭环带宽 |
-| `ENCODER_TRACKING_ZETA` | `0.707f` | Type-II PLL 阻尼比 |
-| `ENCODER_OUTPUT_DEADBAND_DEG` | `0.015f` | 发布角度 dead-band 门限 |
-| `ENCODER_ANGLE_COUNT_HYSTERESIS` | `1` | 发布计数 hysteresis |
-| `ENCODER_MAG_WINDOW_BINS` | `32` | 幅值显示窗口的转子角分箱数 |
-| `ENCODER_RUNTIME_TRIM_GAIN_STEP_LIMIT` | `0.02f` | 单次 AGC gain trim 限幅 |
-| `ENCODER_RUNTIME_TRIM_GAIN_TOTAL_LIMIT` | `0.5f` | AGC gain trim 总限幅 |
+| `ADC_SAMPLE_RATE_HZ` | `10000` | 编码器更新率 |
+| `ENCODER_CAL_SAMPLE_COUNT` | `8192` | 服务标定样本数 |
+| `ENCODER_TRACKING_BW_HZ` | `100.0f` | 观测器带宽 |
+| `ENCODER_TRACKING_ZETA` | `0.707f` | 观测器阻尼比 |
+| `ENCODER_FILTER_HOLD_RESYNC_SAMPLES` | `50` | 连续无效样本后的重新锁定间隔 |
+| `ENCODER_OUTPUT_DEADBAND_DEG` | `0.015f` | 监控角度 dead-band |
+| `ENCODER_ANGLE_COUNT_HYSTERESIS` | `3` | 低延迟计数 hysteresis |
 
-## 已知说明和限制
+## 使用约束
 
-- 多圈位置是 RAM-only。掉电或复位会清零 turn counter。
-- **Zero Here** 也是 RAM-only。持久化零位来自工厂标定。
-- 低于输出 dead-band 速率的极慢速运动，发布角度路径可能表现为台阶。
-- Runtime AGC 只在 NVM 标定作为当前标定源时启用。
-- 当前 Keil 工程元数据使用 MCXA343 pack/device 名称，而固件源码目标是 MCXA344 系列；改 pack 或重新生成工程时要注意这一点。
-- 当前仓库快照没有顶层 `LICENSE`、`CONTRIBUTING`、`SECURITY` 文件。
+- 产品接口为单圈，ABM 和所有多圈字段固定为 0。
+- Flash 擦写期间会暂时停止采样和 T-Format 响应。
+- EEPROM 和零位写入在转轴静止并完成新快照校验后结束 busy 状态。
+- LPUART0 仅供 FreeMASTER 使用；产品 target 不包含 DebugConsole 和普通串口日志。
 
-## 验证
+## 许可证
 
-本 README 描述当前固件接口和常量。文档-only 修改可用以下命令验证：
-
-```powershell
-git diff --check
-```
-
-固件构建仍通过 Keil MDK 完成：
-
-```powershell
-C:\Keil_v5\UV4\uVision.com -b ind_encoder.uvprojx -t ind_encoder -j0
-```
-
-## License
-
-BSD-3-Clause，以源码文件中的 SPDX 头为准。
+项目应用层代码采用 BSD-3-Clause 许可证，见 [LICENSE](LICENSE)。仓库内 SDK、
+CMSIS 和 FreeMASTER 组件保留各自的版权与许可证声明。

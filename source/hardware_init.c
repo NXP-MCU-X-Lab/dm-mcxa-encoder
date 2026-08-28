@@ -7,13 +7,11 @@
 #include "pin_mux.h"
 #include "fsl_clock.h"
 #include "fsl_reset.h"
-#include "fsl_lpuart.h"
 #include "fsl_spc.h"
 #include "fsl_opamp.h"
 #include "fsl_gpio.h"
 #include "fsl_port.h"
 #include "fsl_mau.h"
-#include "fsl_debug_console.h"
 #include "clock_config.h"
 #include "hardware_init.h"
 /*${header:end}*/
@@ -69,8 +67,16 @@ void Heartbeat_Init(void)
 void SysTick_Handler(void)
 {
     g_systick_ms++;
-    if ((g_systick_ms % HEARTBEAT_TOGGLE_INTERVAL_MS) == 0U)
+}
+
+void Heartbeat_Service(void)
+{
+    static uint32_t last_toggle_ms;
+    const uint32_t now = g_systick_ms;
+
+    if ((uint32_t)(now - last_toggle_ms) >= HEARTBEAT_TOGGLE_INTERVAL_MS)
     {
+        last_toggle_ms = now;
         GPIO_PortToggle(HEARTBEAT_GPIO, 1U << HEARTBEAT_PIN);
     }
 }
@@ -111,7 +117,6 @@ void Hardware_Init(void)
 {
     Pins_Init();
     BOARD_InitBootClocks();
-    Hardware_DebugConsoleInit();
     Opamp_Init();
     TestPin_Init();
     Heartbeat_Init();
@@ -131,12 +136,4 @@ void TestPin_Set(void)
 void TestPin_Clear(void)
 {
     GPIO_PinWrite(TEST_PIN_GPIO, TEST_PIN_NUM, 0U);
-}
-
-void Hardware_DebugConsoleInit(void)
-{
-    CLOCK_SetClockDiv(kCLOCK_DivLPUART0, 1u);
-    CLOCK_AttachClk(HW_DEBUG_UART_CLK_ATTACH);
-    RESET_PeripheralReset(HW_DEBUG_UART_RST);
-    DbgConsole_Init(HW_DEBUG_UART_INSTANCE, HW_DEBUG_UART_BAUDRATE, kSerialPort_Uart, CLOCK_GetFreq(kCLOCK_FroHfDiv));
 }

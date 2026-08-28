@@ -2,7 +2,6 @@
 #include "app_adc.h"
 
 #include <float.h>
-#include <limits.h>
 #include <math.h>
 #include <stddef.h>
 
@@ -120,44 +119,6 @@ static float clamp_float(float value, float min_value, float max_value)
 
     return value;
 }
-
-/* Rotor-angle binned mag window: each bin holds the latest mag sampled while
- * the rotor was in that angular sector. Once every bin has been visited at
- * least once, we publish the mean across the window so the displayed mag does
- * not depend on where the rotor happened to be parked at power-up. The mean
- * is also the AGC feedback signal that drives gain trim toward unity. */
-static float mag_window_update(encoder_mag_window_t *win, float raw_mag, float angle_deg)
-{
-    uint32_t bin;
-
-    if (win == NULL)
-    {
-        return raw_mag;
-    }
-
-    bin = (uint32_t)((wrap_deg(angle_deg) * (float)ENCODER_MAG_WINDOW_BINS) / 360.0f);
-    if (bin >= ENCODER_MAG_WINDOW_BINS)
-    {
-        bin = ENCODER_MAG_WINDOW_BINS - 1U;
-    }
-
-    win->sum -= win->bins[bin];
-    win->bins[bin] = raw_mag;
-    win->sum += raw_mag;
-    win->coverage_mask |= ((uint32_t)1U << bin);
-    if (win->coverage_mask == ENCODER_MAG_WINDOW_FULL_MASK)
-    {
-        win->full_revolution_seen = true;
-    }
-
-    if (!win->full_revolution_seen)
-    {
-        return raw_mag;
-    }
-
-    return win->sum / (float)ENCODER_MAG_WINDOW_BINS;
-}
-
 
 /* Type-II tracking observer (software PLL) — canonical resolver / inductive
  * encoder output stage. Closed-loop characteristic eq: s^2 + Kp*s + Ki,
@@ -361,23 +322,31 @@ static float update_trim_delta(float current_delta, float desired_delta, bool tr
                        ENCODER_RUNTIME_TRIM_TOTAL_LIMIT_COUNTS);
 }
 
-/* AGC step: per-revolution step proportional to (1 - mag_mean_observed), then
- * clamped. Converges current gain so that mean magnitude approaches 1.0 even if
- * the analog amplitude has drifted from factory-cal conditions. */
-static float update_gain_delta(float current_delta, float observed_mag)
+/* AGC. The observed magnitude already carries the current gain, so the delta that
+ * puts the mean at 1.0 is (1 + current) / observed - 1; near 1.0 this reduces to
+ * the (1 - observed) step it replaces. Snap first, then creep -- same shape as the
+ * centre, and for the same reason: board-to-board spread is not drift. It is also
+ * what lets a board whose amplitude starts outside the acceptance band get inside
+ * it at all, since 0.02 per window never would. */
+static float update_gain_delta(float current_delta, float observed_mag, bool tracking)
 {
-    float step;
+    float desired;
 
     if (!is_finite_float(observed_mag) || (observed_mag <= 0.0f))
     {
         return current_delta;
     }
 
-    step = clamp_float(1.0f - observed_mag,
-                       -ENCODER_RUNTIME_TRIM_GAIN_STEP_LIMIT,
-                       ENCODER_RUNTIME_TRIM_GAIN_STEP_LIMIT);
+    desired = ((1.0f + current_delta) / observed_mag) - 1.0f;
 
-    return clamp_float(current_delta + step,
+    if (tracking)
+    {
+        desired = current_delta + clamp_float(desired - current_delta,
+                                              -ENCODER_RUNTIME_TRIM_GAIN_STEP_LIMIT,
+                                              ENCODER_RUNTIME_TRIM_GAIN_STEP_LIMIT);
+    }
+
+    return clamp_float(desired,
                        -ENCODER_RUNTIME_TRIM_GAIN_TOTAL_LIMIT,
                        ENCODER_RUNTIME_TRIM_GAIN_TOTAL_LIMIT);
 }
@@ -644,26 +613,7 @@ static bool build_track_calibration(const encoder_track_cal_stats_t *stats,
     return true;
 }
 
-/* Linear interpolation into a per-track INL table, indexed by electrical phase.
- * The table wraps, so bin N-1 interpolates back into bin 0. */
-static float inl_lookup(const float *correction, float phase_deg)
-{
-    const float pos = phase_deg * ((float)ENCODER_INL_BINS / 360.0f);
-    uint32_t bin = (uint32_t)pos;
-    float frac;
-
-    if (bin >= ENCODER_INL_BINS)
-    {
-        bin = ENCODER_INL_BINS - 1U;
-    }
-    frac = pos - (float)bin;
-
-    return correction[bin] +
-           (frac * (correction[(bin + 1U) % ENCODER_INL_BINS] - correction[bin]));
-}
-
 static bool transform_track(const encoder_track_calibration_t *track,
-                            const encoder_inl_track_t *inl,
                             uint16_t sin_raw,
                             uint16_t cos_raw,
                             float *phase_deg,
@@ -674,14 +624,7 @@ static bool transform_track(const encoder_track_calibration_t *track,
     const float sin_corr = track->t00 * sin_centered;
     const float cos_corr = (track->t10 * sin_centered) + (track->t11 * cos_centered);
     const float local_mag = sqrtf((sin_corr * sin_corr) + (cos_corr * cos_corr));
-    float local_phase = wrap_deg(atan2f(sin_corr, cos_corr) * (180.0f / ENCODER_PI));
-
-    if (inl != NULL)
-    {
-        /* Evaluated at the measured phase rather than the true one. The resulting
-         * second-order error is what makes a second solve pass worth measuring. */
-        local_phase = wrap_deg(local_phase - inl_lookup(inl->correction, local_phase));
-    }
+    const float local_phase = wrap_deg(atan2f(sin_corr, cos_corr) * (180.0f / ENCODER_PI));
 
     if (phase_deg != NULL)
     {
@@ -718,10 +661,6 @@ static void hold_last_angle(encoder_state_t *state, encoder_result_t *result)
         result->angle_deg_raw = state->last_angle_raw_deg;
         result->angle_deg_filtered = state->last_angle_deg;
         result->angle_counts = state->last_angle_counts;
-        result->turn_count = state->turn_count;
-        result->multi_turn_deg = ((float)state->turn_count * 360.0f) +
-                                 (((float)state->last_angle_counts * 360.0f) /
-                                  (float)ENCODER_COUNTS_PER_REV);
     }
     else
     {
@@ -729,8 +668,6 @@ static void hold_last_angle(encoder_state_t *state, encoder_result_t *result)
         result->angle_deg_raw = 0.0f;
         result->angle_deg_filtered = 0.0f;
         result->angle_counts = 0U;
-        result->turn_count = (state != NULL) ? state->turn_count : 0;
-        result->multi_turn_deg = 0.0f;
     }
 }
 
@@ -948,12 +885,9 @@ bool encoder_cal_stats_build(const encoder_cal_stats_t *stats,
 }
 
 bool encoder_capture_zero(encoder_calibration_t *calibration,
-                          const encoder_inl_t *inl,
                           const encoder_raw_sample_t *sample,
                           uint32_t *status)
 {
-    const encoder_inl_track_t *inl16 = ((inl != NULL) && inl->valid) ? &inl->t16 : NULL;
-    const encoder_inl_track_t *inl15 = ((inl != NULL) && inl->valid) ? &inl->t15 : NULL;
     float phase_a1 = 0.0f;
     float phase_a2 = 0.0f;
     float mag_a1 = 0.0f;
@@ -980,13 +914,13 @@ bool encoder_capture_zero(encoder_calibration_t *calibration,
         local_status |= ENCODER_STATUS_ADC_RAIL;
     }
 
-    if (!transform_track(&calibration->a1, inl16, sample->a1_sin_raw, sample->a1_cos_raw,
+    if (!transform_track(&calibration->a1, sample->a1_sin_raw, sample->a1_cos_raw,
                          &phase_a1, &mag_a1))
     {
         local_status |= ENCODER_STATUS_TRACK16_WEAK | ENCODER_STATUS_CAL_FAILED;
     }
 
-    if (!transform_track(&calibration->a2, inl15, sample->a2_sin_raw, sample->a2_cos_raw,
+    if (!transform_track(&calibration->a2, sample->a2_sin_raw, sample->a2_cos_raw,
                          &phase_a2, &mag_a2))
     {
         local_status |= ENCODER_STATUS_TRACK15_WEAK | ENCODER_STATUS_CAL_FAILED;
@@ -1017,86 +951,6 @@ bool encoder_capture_zero(encoder_calibration_t *calibration,
     return true;
 }
 
-void encoder_inl_init(encoder_inl_t *inl)
-{
-    if (inl == NULL)
-    {
-        return;
-    }
-
-    *inl = (encoder_inl_t){0};
-}
-
-static void inl_accumulate_track(encoder_inl_track_t *track, float phase_deg, float fine_delta)
-{
-    uint32_t bin = (uint32_t)(wrap_deg(phase_deg) * ((float)ENCODER_INL_BINS / 360.0f));
-
-    if (bin >= ENCODER_INL_BINS)
-    {
-        bin = ENCODER_INL_BINS - 1U;
-    }
-
-    track->sum[bin] += fine_delta;
-    track->count[bin]++;
-}
-
-void encoder_inl_accumulate(encoder_inl_t *inl,
-                            const encoder_diag_t *diag,
-                            const encoder_result_t *result)
-{
-    if ((inl == NULL) || (diag == NULL) || (result == NULL) ||
-        (result->status != ENCODER_STATUS_OK))
-    {
-        return;
-    }
-
-    inl_accumulate_track(&inl->t16, diag->phase_a1_deg, result->fine_delta_deg);
-    inl_accumulate_track(&inl->t15, diag->phase_a2_deg, result->fine_delta_deg);
-}
-
-/* fine_delta = 16*e15 - 15*e16, so the bin mean taken against track 16's own
- * phase converges to -15*e16 and against track 15's phase to +16*e15. Divide
- * each by its own coefficient, then remove the DC term: a constant phase shift
- * is indistinguishable from a zero offset, and leaving it in would move the
- * captured zero every time the table is rebuilt. */
-static bool inl_solve_track(encoder_inl_track_t *track, float coefficient)
-{
-    float mean_sum = 0.0f;
-    uint32_t bin;
-
-    for (bin = 0U; bin < ENCODER_INL_BINS; bin++)
-    {
-        if (track->count[bin] < ENCODER_INL_MIN_BIN_SAMPLES)
-        {
-            return false;
-        }
-
-        track->correction[bin] = track->sum[bin] / ((float)track->count[bin] * coefficient);
-        mean_sum += track->correction[bin];
-    }
-
-    mean_sum /= (float)ENCODER_INL_BINS;
-    for (bin = 0U; bin < ENCODER_INL_BINS; bin++)
-    {
-        track->correction[bin] -= mean_sum;
-    }
-
-    return true;
-}
-
-bool encoder_inl_solve(encoder_inl_t *inl)
-{
-    if (inl == NULL)
-    {
-        return false;
-    }
-
-    inl->valid = inl_solve_track(&inl->t16, -(float)ENCODER_TRACK15_CYCLES) &&
-                 inl_solve_track(&inl->t15, (float)ENCODER_TRACK16_CYCLES);
-
-    return inl->valid;
-}
-
 void encoder_state_init(encoder_state_t *state)
 {
     if (state == NULL)
@@ -1105,16 +959,6 @@ void encoder_state_init(encoder_state_t *state)
     }
 
     *state = (encoder_state_t){0};
-}
-
-void encoder_state_reset_turn_count(encoder_state_t *state)
-{
-    if (state == NULL)
-    {
-        return;
-    }
-
-    state->turn_count = 0;
 }
 
 void encoder_runtime_trim_init(encoder_runtime_trim_t *trim)
@@ -1186,6 +1030,8 @@ void encoder_runtime_trim_update(encoder_runtime_trim_t *trim,
     float a2_sin_center;
     float a2_cos_center;
     bool acquiring;
+    bool snapping;
+    bool mag_in_band;
 
     if ((trim == NULL) || (sample == NULL) || (result == NULL))
     {
@@ -1199,6 +1045,7 @@ void encoder_runtime_trim_update(encoder_runtime_trim_t *trim,
      * when it is the thing that would fix the problem. Rails are the only veto
      * that makes sense here: a clipped sample carries no min/max information. */
     acquiring = !trim->has_locked;
+    snapping = (trim->solve_count < ENCODER_RUNTIME_TRIM_SNAP_SOLVES);
 
     if (!trim->enabled || (factory == NULL) || !factory->valid ||
         adc_is_rail(sample->a1_sin_raw) || adc_is_rail(sample->a1_cos_raw) ||
@@ -1214,12 +1061,22 @@ void encoder_runtime_trim_update(encoder_runtime_trim_t *trim,
      * binned-window display mean. Closing the loop on the display mean would
      * mask local weak / over-amplitude signals and let the AGC chase its own
      * averaged output. */
+    mag_in_band = (result->mag16_raw >= ENCODER_RUNTIME_TRIM_MAG_MIN) &&
+                  (result->mag16_raw <= ENCODER_RUNTIME_TRIM_MAG_MAX) &&
+                  (result->mag15_raw >= ENCODER_RUNTIME_TRIM_MAG_MIN) &&
+                  (result->mag15_raw <= ENCODER_RUNTIME_TRIM_MAG_MAX);
+
+    /* The band is a health gate on a converged loop, so it cannot also be the
+     * entry condition to that loop. Enforcing it during the snap windows
+     * deadlocks any board whose amplitude starts outside it: the sample is
+     * rejected, so the gain that would bring the magnitude back inside never
+     * runs, the lock is dropped, and acquisition repeats forever.
+     * Suspending it admits nothing dangerous, because a genuinely dead channel
+     * falls below ENCODER_MIN_NORMALIZED_MAG and raises TRACK*_WEAK, which the
+     * status gate below still catches. What it exposes is [0.15, 0.667): weak
+     * but usable, which is exactly the case the gain exists to pull back. */
     if (!acquiring &&
-        ((result->status != ENCODER_STATUS_OK) ||
-         (result->mag16_raw < ENCODER_RUNTIME_TRIM_MAG_MIN) ||
-         (result->mag16_raw > ENCODER_RUNTIME_TRIM_MAG_MAX) ||
-         (result->mag15_raw < ENCODER_RUNTIME_TRIM_MAG_MIN) ||
-         (result->mag15_raw > ENCODER_RUNTIME_TRIM_MAG_MAX)))
+        ((result->status != ENCODER_STATUS_OK) || (!snapping && !mag_in_band)))
     {
         trim->active = false;
 
@@ -1334,8 +1191,8 @@ void encoder_runtime_trim_update(encoder_runtime_trim_t *trim,
         const float a1_raw_mag_mean = trim->a1_raw_mag_sum * inv_count;
         const float a2_raw_mag_mean = trim->a2_raw_mag_sum * inv_count;
 
-        trim->a1_gain_delta = update_gain_delta(trim->a1_gain_delta, a1_raw_mag_mean);
-        trim->a2_gain_delta = update_gain_delta(trim->a2_gain_delta, a2_raw_mag_mean);
+        trim->a1_gain_delta = update_gain_delta(trim->a1_gain_delta, a1_raw_mag_mean, !snapping);
+        trim->a2_gain_delta = update_gain_delta(trim->a2_gain_delta, a2_raw_mag_mean, !snapping);
     }
 
     trim->active = true;
@@ -1349,7 +1206,6 @@ void encoder_runtime_trim_update(encoder_runtime_trim_t *trim,
 
 void encoder_process(encoder_state_t *state,
                      const encoder_calibration_t *calibration,
-                     const encoder_inl_t *inl,
                      const encoder_raw_sample_t *sample,
                      encoder_result_t *result,
                      encoder_diag_t *diag)
@@ -1360,8 +1216,6 @@ void encoder_process(encoder_state_t *state,
     float mag_a2 = 0.0f;
     encoder_solver_candidate_t best;
     uint32_t status = ENCODER_STATUS_OK;
-    const encoder_inl_track_t *inl16 = ((inl != NULL) && inl->valid) ? &inl->t16 : NULL;
-    const encoder_inl_track_t *inl15 = ((inl != NULL) && inl->valid) ? &inl->t15 : NULL;
 
     if (result == NULL)
     {
@@ -1377,12 +1231,8 @@ void encoder_process(encoder_state_t *state,
     result->phase15_deg = 0.0f;
     result->coarse_deg = 0.0f;
     result->fine_delta_deg = 0.0f;
-    result->mag16 = 0.0f;
-    result->mag15 = 0.0f;
     result->mag16_raw = 0.0f;
     result->mag15_raw = 0.0f;
-    result->turn_count = (state != NULL) ? state->turn_count : 0;
-    result->multi_turn_deg = 0.0f;
     result->status = ENCODER_STATUS_OK;
     init_diag(diag);
 
@@ -1407,13 +1257,13 @@ void encoder_process(encoder_state_t *state,
         status |= ENCODER_STATUS_ADC_RAIL;
     }
 
-    if (!transform_track(&calibration->a1, inl16, sample->a1_sin_raw, sample->a1_cos_raw,
+    if (!transform_track(&calibration->a1, sample->a1_sin_raw, sample->a1_cos_raw,
                          &phase_a1, &mag_a1))
     {
         status |= ENCODER_STATUS_TRACK16_WEAK | ENCODER_STATUS_CAL_FAILED;
     }
 
-    if (!transform_track(&calibration->a2, inl15, sample->a2_sin_raw, sample->a2_cos_raw,
+    if (!transform_track(&calibration->a2, sample->a2_sin_raw, sample->a2_cos_raw,
                          &phase_a2, &mag_a2))
     {
         status |= ENCODER_STATUS_TRACK15_WEAK | ENCODER_STATUS_CAL_FAILED;
@@ -1445,10 +1295,6 @@ void encoder_process(encoder_state_t *state,
 
             result->mag16_raw = mag_a1;
             result->mag15_raw = mag_a2;
-            result->mag16 = mag_window_update((state != NULL) ? &state->mag_window_a1 : NULL,
-                                              mag_a1, best.angle);
-            result->mag15 = mag_window_update((state != NULL) ? &state->mag_window_a2 : NULL,
-                                              mag_a2, best.angle);
             result->phase16_deg = best.p16;
             result->phase15_deg = best.p15;
             result->coarse_deg = best.coarse;
@@ -1528,41 +1374,11 @@ void encoder_process(encoder_state_t *state,
 
         if (state != NULL)
         {
-            /* Multi-turn boundary detection runs on the PUBLISHED angle_counts,
-             * not on any float angle. Counts are what the protocol sends, and they
-             * carry an output hysteresis that can hold the previous value across
-             * the wrap; deriving the turn counter from anything else lets the two
-             * disagree by a whole revolution for as long as the hysteresis holds,
-             * which one T-Format ID3 frame would publish as ABS and ABM describing
-             * positions 360 deg apart. Comparing published against published makes
-             * the pair consistent by construction. */
-            if (state->has_valid_angle)
-            {
-                const uint32_t low = ENCODER_COUNTS_PER_REV / 4U;
-                const uint32_t high = ENCODER_COUNTS_PER_REV - low;
-
-                if ((state->last_angle_counts >= high) && (result->angle_counts < low))
-                {
-                    if (state->turn_count < INT32_MAX) state->turn_count++;
-                }
-                else if ((state->last_angle_counts < low) && (result->angle_counts >= high))
-                {
-                    if (state->turn_count > INT32_MIN) state->turn_count--;
-                }
-            }
-
             state->last_angle_deg = result->angle_deg;
             state->last_angle_raw_deg = result->angle_deg_raw;
             state->last_angle_counts = result->angle_counts;
             state->has_valid_angle = true;
             state->hold_last_streak = 0U;
-
-            result->turn_count = state->turn_count;
-            /* Built from the same published counts the turn counter watches, so
-             * angle_counts, turn_count and multi_turn_deg tell one story. */
-            result->multi_turn_deg = ((float)state->turn_count * 360.0f) +
-                                     (((float)result->angle_counts * 360.0f) /
-                                      (float)ENCODER_COUNTS_PER_REV);
         }
     }
     else

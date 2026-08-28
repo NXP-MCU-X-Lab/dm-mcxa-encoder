@@ -14,16 +14,16 @@
       <uAC6>1</uAC6>
       <TargetOption>
         <TargetCommonOption>
-          <Device>MCXA343VLH</Device>
+          <Device>MCXA344VLL</Device>
           <Vendor>NXP</Vendor>
-          <PackID>NXP.MCXA343_DFP.25.09.00</PackID>
+          <PackID>NXP.MCXA344_DFP.25.06.00</PackID>
           <PackURL>https://mcuxpresso.nxp.com/cmsis_pack/repo/</PackURL>
-          <Cpu>IRAM(0x20000000,0x4000) IRAM2(0x04000000,0x2000) IROM(0x03000000,0x6000) IROM2(0x00000000,0x01e000) XRAM(0x04002000,0x2000) CPUTYPE("Cortex-M33") FPU3(SFPU) DSP CLOCK(12000000) ELITTLE</Cpu>
+          <Cpu>IRAM(0x20000000,0xc000) IRAM2(0x04000000,0x2000) IROM(0x03000000,0x6000) IROM2(0x00000000,0x03c000) XRAM(0x04002000,0x2000) CPUTYPE("Cortex-M33") FPU3(SFPU) DSP CLOCK(180000000) ELITTLE</Cpu>
           <FlashUtilSpec></FlashUtilSpec>
           <StartupFile></StartupFile>
-          <FlashDriverDll>UL2V8M(-S0 -C0 -P0 -FD20000000 -FC1000 -FN1 -FF0MCXA_128 -FS00 -FL020000 -FP0($$Device:MCXA343VLH$devices\MCXA343\arm\MCXA_128.FLM))</FlashDriverDll>
+          <FlashDriverDll>UL2V8M(-S0 -C0 -P0 -FD20000000 -FC1000 -FN1 -FF0MCXA34X_256 -FS00 -FL040000 -FP0($$Device:MCXA344VLL$devices\MCXA344\arm\MCXA34X_256.FLM))</FlashDriverDll>
           <DeviceId>0</DeviceId>
-          <RegisterFile>$$Device:MCXA343VLH$devices\MCXA343\fsl_device_registers.h</RegisterFile>
+          <RegisterFile>$$Device:MCXA344VLL$devices\MCXA344\fsl_device_registers.h</RegisterFile>
           <MemoryEnv></MemoryEnv>
           <Cmp></Cmp>
           <Asm></Asm>
@@ -33,7 +33,7 @@
           <SLE66CMisc></SLE66CMisc>
           <SLE66AMisc></SLE66AMisc>
           <SLE66LinkerMisc></SLE66LinkerMisc>
-          <SFDFile>$$Device:MCXA343VLH$devices\MCXA343\MCXA343.xml</SFDFile>
+          <SFDFile>$$Device:MCXA344VLL$devices\MCXA344\MCXA344.xml</SFDFile>
           <bCustSvd>0</bCustSvd>
           <UseEnv>0</UseEnv>
           <BinPath></BinPath>
@@ -48,7 +48,7 @@
             <NotGenerated>0</NotGenerated>
             <InvalidFlash>1</InvalidFlash>
           </TargetStatus>
-          <OutputDirectory>debug\</OutputDirectory>
+          <OutputDirectory>release\</OutputDirectory>
           <OutputName>ind_encoder</OutputName>
           <CreateExecutable>1</CreateExecutable>
           <CreateLib>0</CreateLib>
@@ -82,7 +82,7 @@
           <AfterMake>
             <RunUserProg1>1</RunUserProg1>
             <RunUserProg2>0</RunUserProg2>
-            <UserProg1Name>fromelf.exe --output "$Lhello_world.bin" --bincombined "#L"</UserProg1Name>
+            <UserProg1Name>fromelf.exe --output "$Lind_encoder.bin" --bincombined "#L"</UserProg1Name>
             <UserProg2Name>fromelf --m32combined -o "$L@L.srec" !L</UserProg2Name>
             <UserProg1Dos16Mode>0</UserProg1Dos16Mode>
             <UserProg2Dos16Mode>0</UserProg2Dos16Mode>
@@ -247,7 +247,7 @@
               <IRAM>
                 <Type>0</Type>
                 <StartAddress>0x20000000</StartAddress>
-                <Size>0x4000</Size>
+                <Size>0xc000</Size>
               </IRAM>
               <IROM>
                 <Type>1</Type>
@@ -282,7 +282,7 @@
               <OCR_RVCT5>
                 <Type>1</Type>
                 <StartAddress>0x0</StartAddress>
-                <Size>0x1e000</Size>
+                <Size>0x3c000</Size>
               </OCR_RVCT5>
               <OCR_RVCT6>
                 <Type>0</Type>
@@ -302,7 +302,7 @@
               <OCR_RVCT9>
                 <Type>0</Type>
                 <StartAddress>0x20000000</StartAddress>
-                <Size>0x4000</Size>
+                <Size>0xc000</Size>
               </OCR_RVCT9>
               <OCR_RVCT10>
                 <Type>0</Type>
@@ -338,9 +338,9 @@
             <v6Rtti>0</v6Rtti>
             <VariousControls>
               <MiscControls> -fno-common -fdata-sections -fno-builtin -mthumb</MiscControls>
-              <Define>DEBUG, SDK_DEBUGCONSOLE=1, MCUX_META_BUILD, MCUXPRESSO_SDK, CPU_MCXA344VLL, MCXA344_SERIES SDK_DEBUGCONSOLE_UART</Define>
+              <Define>MCUX_META_BUILD,MCUXPRESSO_SDK,CPU_MCXA344VLL,MCXA344_SERIES,NDEBUG</Define>
               <Undefine></Undefine>
-              <IncludePath>board;source;CMSIS;CMSIS/m-profile;component/uart;device;device/periph3;drivers;utilities;utilities/debug_console_lite;utilities/str;.\source\nl;.\source\nl\rcv;.\middleware\freemaster\src\common;.\middleware\freemaster\src\drivers\mcuxsdk\serial;.\middleware\freemaster\src\platforms\gen32le</IncludePath>
+              <IncludePath>board;source;CMSIS;CMSIS/m-profile;component/uart;device;device/periph3;drivers;utilities;utilities/str;.\source\nl;.\source\nl\rcv;.\middleware\freemaster\src\common;.\middleware\freemaster\src\drivers\mcuxsdk\serial;.\middleware\freemaster\src\platforms\gen32le</IncludePath>
             </VariousControls>
           </Cads>
           <Aads>
@@ -356,9 +356,9 @@
             <ClangAsOpt>2</ClangAsOpt>
             <VariousControls>
               <MiscControls></MiscControls>
-              <Define>CPU_LPC55S69JBD100_cm33_core0, DEBUG,__CC_ARM,KEIL, MCUXPRESSO_SDK, CPU_MCXA344VLL, MCXA344_SERIES</Define>
+              <Define>__CC_ARM,KEIL,MCUXPRESSO_SDK,CPU_MCXA344VLL,MCXA344_SERIES,NDEBUG</Define>
               <Undefine></Undefine>
-              <IncludePath>source;CMSIS;CMSIS/m-profile;component/uart;device;device/periph3;drivers;utilities;utilities/debug_console_lite;utilities/str</IncludePath>
+              <IncludePath>source;CMSIS;CMSIS/m-profile;component/uart;device;device/periph3;drivers;utilities;utilities/str</IncludePath>
             </VariousControls>
           </Aads>
           <LDads>
@@ -838,28 +838,8 @@
           </Files>
         </Group>
         <Group>
-          <GroupName>utilities/debug_console_lite</GroupName>
-          <Files>
-            <File>
-              <FileName>fsl_debug_console.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>utilities/debug_console_lite/fsl_debug_console.c</FilePath>
-            </File>
-            <File>
-              <FileName>fsl_debug_console.h</FileName>
-              <FileType>5</FileType>
-              <FilePath>utilities/debug_console_lite/fsl_debug_console.h</FilePath>
-            </File>
-          </Files>
-        </Group>
-        <Group>
           <GroupName>utilities</GroupName>
           <Files>
-            <File>
-              <FileName>fsl_assert.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>utilities/fsl_assert.c</FilePath>
-            </File>
             <File>
               <FileName>fsl_assert.h</FileName>
               <FileType>5</FileType>

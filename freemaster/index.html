@@ -542,8 +542,8 @@
                         <span class="data-tag">degrees · 0 – 360</span>
                     </div>
                     <div class="data-row"><span class="label">counts</span><span class="value" id="angle-counts">---</span></div>
-                    <div class="data-row"><span class="label">multi-turn</span><span class="value" id="multi-turn-deg">---</span></div>
-                    <div class="data-row"><span class="label">turn count</span><span class="value" id="turn-count">---</span></div>
+                    <div class="data-row"><span class="label">encoder</span><span class="value" id="encoder-ready">---</span></div>
+                    <div class="data-row"><span class="label">motion</span><span class="value" id="encoder-stationary">---</span></div>
                 </div>
             </div>
             <div class="error-msg" id="angle-error"></div>
@@ -564,7 +564,7 @@
                 <div class="vbar-fill" id="vbar-fill"></div>
             </div>
             <div class="vbar-scale">
-                <span>-1080</span><span>0</span><span>+1080 dps</span>
+                <span>-36000</span><span>0</span><span>+36000 dps</span>
             </div>
             <div style="margin-top: 18px;">
                 <div class="data-row"><span class="label">rpm</span><span class="value" id="speed-rpm">--.--</span></div>
@@ -579,14 +579,10 @@
                 <span class="card-title">Encoder Control</span>
                 <span class="card-unit">service commands</span>
             </div>
-            <div class="btn-row" style="grid-template-columns: repeat(4, 1fr);">
+            <div class="btn-row" style="grid-template-columns: repeat(3, 1fr);">
                 <div>
-                    <button class="btn" id="btn-zero">Zero Here</button>
+                    <button class="btn" id="btn-zero">Zero &amp; Save</button>
                     <div class="btn-status" id="zero-status">Idle</div>
-                </div>
-                <div>
-                    <button class="btn" id="btn-turn-reset">Reset Turns</button>
-                    <div class="btn-status" id="turn-reset-status">--</div>
                 </div>
                 <div>
                     <button class="btn" id="btn-factory">Factory Cal</button>
@@ -595,8 +591,8 @@
                     <div class="progress-text" id="factory-text">0%</div>
                 </div>
                 <div>
-                    <button class="btn danger" id="btn-reset">MCU Reset</button>
-                    <div class="btn-status" id="reset-status">--</div>
+                    <button class="btn danger" id="btn-erase">Erase Config</button>
+                    <div class="btn-status" id="erase-status">Idle</div>
                 </div>
             </div>
             <div class="error-msg" id="control-error"></div>
@@ -616,8 +612,9 @@
             </div>
             <div class="data-row"><span class="label">status</span><span class="value" id="enc-status">0x00000000</span></div>
             <div class="data-row"><span class="label">cal source</span><span class="value" id="cal-source">--</span></div>
-            <div class="data-row"><span class="label">mag16 (mean / raw)</span><span class="value" id="mag16">--</span></div>
-            <div class="data-row"><span class="label">mag15 (mean / raw)</span><span class="value" id="mag15">--</span></div>
+            <div class="data-row"><span class="label">motion</span><span class="value" id="diag-motion">--</span></div>
+            <div class="data-row"><span class="label">mag16 raw</span><span class="value" id="mag16">--</span></div>
+            <div class="data-row"><span class="label">mag15 raw</span><span class="value" id="mag15">--</span></div>
             <div class="error-msg" id="diag-error"></div>
         </section>
 
@@ -636,9 +633,9 @@
                 <span class="card-title">Compute Budget · DWT Cycle Profiler</span>
                 <span class="card-unit" id="perf-clock">core --</span>
             </div>
-            <div class="data-row"><span class="label">encoder_process</span><span class="value" id="perf-process">--</span></div>
-            <div class="data-row"><span class="label">ISR total (process + AGC + snapshot)</span><span class="value" id="perf-isr">--</span></div>
-            <div class="data-row"><span class="label">CPU load @ 10 kHz</span><span class="value" id="perf-cpu">--</span></div>
+            <div class="data-row"><span class="label">peak encoder_process</span><span class="value" id="perf-process">--</span></div>
+            <div class="data-row"><span class="label">peak ISR total</span><span class="value" id="perf-isr">--</span></div>
+            <div class="data-row"><span class="label">peak CPU load @ 10 kHz</span><span class="value" id="perf-cpu">--</span></div>
             <div class="error-msg" id="perf-error"></div>
         </section>
 
@@ -662,7 +659,7 @@
         ];
         /* Bits that count as hard faults (anything else is warn) */
         const FAULT_MASK =
-            (1 << 1) | (1 << 2) | (1 << 3) | (1 << 5) | (1 << 7);
+            (1 << 1) | (1 << 2) | (1 << 3) | (1 << 5);
 
         /* ---------- Generate dial ticks ---------- */
         (function buildTicks() {
@@ -680,8 +677,24 @@
         let isConnected = false;
         let demoTimer = null;
         let debugTimer = null;
+        let metaTimer = null;
+        let commandTimer = null;
         let activeTab = 'demo';
         let dialAngle = 0;
+        let monitorPolling = false;
+        let debugPolling = false;
+        let metaPolling = false;
+        let commandPolling = false;
+        let activeCommand = null;
+        let rpcTail = Promise.resolve();
+        let encoderStationary = false;
+
+        const COMMAND = { ZERO_SAVE: 1, FACTORY_CAL: 2, ERASE_CONFIG: 3 };
+        const COMMAND_STATE = { IDLE: 0, BUSY: 1, DONE: 2, ERROR: 3 };
+        const VELOCITY_FULL_SCALE_DPS = 36000;
+        const ENCODER_RESULT_WORDS = 12;
+        const floatWordBuffer = new ArrayBuffer(4);
+        const floatWordView = new DataView(floatWordBuffer);
 
         function initializePCM() {
             try {
@@ -702,18 +715,20 @@
         function onSocketConnected() {
             isConnected = true;
             setConnState('up', 'CONNECTED');
-            pcm.EnableEvents(true);
             startPolling();
         }
         function onSocketClose() {
             isConnected = false;
             setConnState('down', 'CLOSED');
             stopPolling();
+            setCommandButtonsDisabled(false);
         }
         function onSocketError(err) {
             isConnected = false;
             console.error('Socket error', err);
             setConnState('down', 'ERROR');
+            stopPolling();
+            setCommandButtonsDisabled(false);
         }
         function setConnState(state, text) {
             const dot = document.getElementById('conn-dot');
@@ -724,10 +739,36 @@
         }
 
         /* ---------- Read helpers ---------- */
-        async function readF (name) { return (await pcm.ReadFloatVariable(name, 4)).data; }
-        async function readU8 (name) { return (await pcm.ReadUIntVariable(name, 1)).data; }
-        async function readU32(name) { return (await pcm.ReadUIntVariable(name, 4)).data; }
-        async function readI32(name) { return (await pcm.ReadIntVariable (name, 4)).data; }
+        function serialRpc(request) {
+            const result = rpcTail.then(request, request);
+            rpcTail = result.catch(() => {});
+            return result;
+        }
+
+        async function readU8(name) {
+            return (await serialRpc(() => pcm.ReadUIntVariable(name, 1))).data;
+        }
+        async function readU32(name) {
+            return (await serialRpc(() => pcm.ReadUIntVariable(name, 4))).data;
+        }
+
+        function wordToFloat(word) {
+            floatWordView.setUint32(0, Number(word) >>> 0, true);
+            return floatWordView.getFloat32(0, true);
+        }
+
+        async function readEncoderSnapshot() {
+            const words = (await serialRpc(() =>
+                pcm.ReadUIntArray('encoder_result', ENCODER_RESULT_WORDS, 4))).data;
+            return {
+                angle: wordToFloat(words[0]),
+                velocityDps: wordToFloat(words[3]),
+                counts: Number(words[4]) >>> 0,
+                mag16Raw: wordToFloat(words[9]),
+                mag15Raw: wordToFloat(words[10]),
+                status: Number(words[11]) >>> 0,
+            };
+        }
 
         function fmtHex32(v) { return '0x' + ((Number(v) >>> 0).toString(16).toUpperCase().padStart(8, '0')); }
         function shortestRot(from, to) {
@@ -745,13 +786,15 @@
                 default: return 'UNKNOWN';
             }
         }
-        function factoryStateName(v) {
+        function commandStatusName(v) {
             switch (Number(v) >>> 0) {
-                case 0: return 'Idle';
-                case 1: return 'Running';
-                case 2: return 'Done';
-                case 3: return 'Failed';
-                default: return '--';
+                case 0: return 'OK';
+                case 1: return 'Moving';
+                case 2: return 'Busy';
+                case 3: return 'Storage error';
+                case 4: return 'Calibration error';
+                case 5: return 'Not ready';
+                default: return 'Unknown error';
             }
         }
         function decodeFlags(status) {
@@ -777,6 +820,12 @@
                 flagsEl.innerHTML = '';
                 return;
             }
+            if ((status & 0x7F) === 0 && (status & 0x180) !== 0) {
+                wrap.classList.add('is-warn');
+                label.textContent = 'CALIBRATION REQUIRED';
+                flagsEl.innerHTML = '<span>NO SAVED BOARD CALIBRATION</span>';
+                return;
+            }
             const isFault = (status & FAULT_MASK) !== 0;
             wrap.classList.add(isFault ? 'is-fault' : 'is-warn');
             label.textContent = isFault ? 'FAULT' : 'ATTENTION';
@@ -787,40 +836,35 @@
 
         /* ---------- Monitor tab ---------- */
         async function pollMonitor() {
-            if (!isConnected) return;
+            if (!isConnected || monitorPolling) return;
+            monitorPolling = true;
 
             try {
-                const deg = await readF('encoder_result.angle_deg');
-                const counts = await readU32('encoder_result.angle_counts');
-                const turns = await readI32('encoder_result.turn_count');
-                const mtDeg = await readF('encoder_result.multi_turn_deg');
+                const snapshot = await readEncoderSnapshot();
+                const deg = snapshot.angle;
+                const counts = snapshot.counts;
+                const dps = snapshot.velocityDps;
+                const displayDps = (encoderStationary && Math.abs(dps) < 20.0) ? 0.0 : dps;
+                const rpm = displayDps / 6.0;
 
                 document.getElementById('angle-deg').textContent = deg.toFixed(4) + '°';
                 document.getElementById('angle-counts').textContent = String(counts);
-                document.getElementById('turn-count').textContent = (Number(turns) >= 0 ? '+' : '') + Number(turns);
-                document.getElementById('multi-turn-deg').textContent = mtDeg.toFixed(2) + '°';
 
                 dialAngle = shortestRot(dialAngle, deg);
                 document.getElementById('dial-needle').style.transform =
                     `translate(-50%, -100%) rotate(${dialAngle}deg)`;
                 document.getElementById('angle-error').textContent = '';
-            } catch (e) {
-                document.getElementById('angle-error').textContent = 'angle read failed: ' + e.message;
-            }
-
-            try {
-                const dps = await readF('encoder_result.angular_velocity_dps');
-                const rpm = dps / 6.0;
                 document.getElementById('speed-dps').textContent =
-                    (dps >= 0 ? '+' : '') + dps.toFixed(1);
+                    (displayDps > 0 ? '+' : '') + displayDps.toFixed(1);
                 document.getElementById('speed-rpm').textContent =
-                    (rpm >= 0 ? '+' : '') + rpm.toFixed(2);
+                    (rpm > 0 ? '+' : '') + rpm.toFixed(2);
                 document.getElementById('speed-dir').textContent =
-                    Math.abs(dps) < 0.5 ? 'IDLE' : (dps > 0 ? 'CW →' : '← CCW');
+                    displayDps === 0 ? 'IDLE' : (displayDps > 0 ? 'CW →' : '← CCW');
 
-                /* Velocity bar — center is 0, full scale ±1080 dps */
-                const clamped = Math.max(-1080, Math.min(1080, dps));
-                const halfPct = (clamped / 1080) * 50;
+                /* Velocity bar covers the 6000 rpm product target. */
+                const clamped = Math.max(-VELOCITY_FULL_SCALE_DPS,
+                                         Math.min(VELOCITY_FULL_SCALE_DPS, displayDps));
+                const halfPct = (clamped / VELOCITY_FULL_SCALE_DPS) * 50;
                 const fill = document.getElementById('vbar-fill');
                 if (halfPct >= 0) {
                     fill.style.left  = '50%';
@@ -830,58 +874,42 @@
                     fill.style.width = (-halfPct) + '%';
                 }
                 document.getElementById('speed-error').textContent = '';
+                renderAlert(snapshot.status);
             } catch (e) {
-                document.getElementById('speed-error').textContent = 'velocity read failed: ' + e.message;
+                document.getElementById('angle-error').textContent =
+                    'snapshot read failed: ' + (e.message || String(e));
+            } finally {
+                monitorPolling = false;
             }
-
-            /* Status + alert ribbon — read on both tabs */
-            try {
-                const status = await readU32('encoder_result.status');
-                renderAlert(status);
-            } catch (e) { /* swallow; alert stays */ }
-
-            /* Factory cal state */
-            try {
-                const fState = await readU8('fm_factory_cal_state');
-                const fProg  = await readU8('fm_factory_cal_progress');
-                const fSt = document.getElementById('factory-status');
-                fSt.textContent = factoryStateName(fState);
-                fSt.className = 'btn-status';
-                if (Number(fState) === 1) fSt.classList.add('is-running');
-                if (Number(fState) === 2) fSt.classList.add('is-done');
-                if (Number(fState) === 3) fSt.classList.add('is-fail');
-                document.getElementById('factory-fill').style.width = Number(fProg) + '%';
-                document.getElementById('factory-text').textContent = Number(fProg) + '%';
-            } catch (e) { /* swallow */ }
         }
 
         /* ---------- Diagnostics tab ---------- */
         async function pollDiag() {
-            if (!isConnected) return;
+            if (!isConnected || debugPolling) return;
+            debugPolling = true;
             try {
-                const mag16   = await readF('encoder_result.mag16');
-                const mag15   = await readF('encoder_result.mag15');
-                const mag16Rw = await readF('encoder_result.mag16_raw');
-                const mag15Rw = await readF('encoder_result.mag15_raw');
-                const status  = await readU32('encoder_result.status');
-                const valid   = await readU8('fm_encoder_valid');
+                const snapshot = await readEncoderSnapshot();
+                const ready   = await readU8('fm_encoder_ready');
+                const stationary = await readU8('fm_encoder_stationary');
                 const calSrc  = await readU32('encoder_calibration_source');
 
-                document.getElementById('mag16').textContent = mag16.toFixed(3) + ' / ' + mag16Rw.toFixed(3);
-                document.getElementById('mag15').textContent = mag15.toFixed(3) + ' / ' + mag15Rw.toFixed(3);
-                document.getElementById('enc-status').textContent = fmtHex32(status);
+                document.getElementById('mag16').textContent = snapshot.mag16Raw.toFixed(3);
+                document.getElementById('mag15').textContent = snapshot.mag15Raw.toFixed(3);
+                document.getElementById('enc-status').textContent = fmtHex32(snapshot.status);
                 document.getElementById('cal-source').textContent = calSourceName(calSrc);
+                document.getElementById('diag-motion').textContent =
+                    Number(stationary) ? 'STATIONARY' : 'MOVING';
 
                 const badge = document.getElementById('enc-valid-badge');
                 badge.classList.remove('is-ok', 'is-warn', 'is-fail');
-                if (Number(valid) === 1 && Number(status) === 0) {
+                if (Number(ready) === 1 && snapshot.status === 0) {
                     badge.textContent = 'OK'; badge.classList.add('is-ok');
-                } else if (Number(valid) === 1) {
-                    badge.textContent = 'Warn'; badge.classList.add('is-warn');
+                } else if (Number(ready) === 1) {
+                    badge.textContent = 'Cal Required'; badge.classList.add('is-warn');
                 } else {
-                    badge.textContent = 'Invalid'; badge.classList.add('is-fail');
+                    badge.textContent = 'Acquiring'; badge.classList.add('is-warn');
                 }
-                renderAlert(status);
+                renderAlert(snapshot.status);
                 document.getElementById('diag-error').textContent = '';
             } catch (e) {
                 document.getElementById('diag-error').textContent = 'read failed: ' + e.message;
@@ -898,49 +926,74 @@
             }
 
             try {
-                const procCyc  = await readU32('encoder_perf_process_cycles');
                 const procMax  = await readU32('encoder_perf_process_max');
-                const isrCyc   = await readU32('encoder_perf_isr_cycles');
                 const isrMax   = await readU32('encoder_perf_isr_max');
                 const coreHz   = await readU32('encoder_perf_core_clock_hz');
 
-                /* Render cycles + microseconds. Guard against coreHz=0 (DWT not
-                 * ready) so we never divide by zero. */
                 const hz = Number(coreHz) >>> 0;
                 const cycToUs = (c) => (hz > 0 ? ((Number(c) >>> 0) * 1.0e6 / hz) : 0);
-                const fmtCyc = (c, max) =>
-                    cycToUs(c).toFixed(2) + ' us  (peak ' + cycToUs(max).toFixed(2) + ' us · '
-                    + (Number(c) >>> 0) + ' cyc)';
+                const fmtPeak = (c) =>
+                    cycToUs(c).toFixed(2) + ' us · ' + (Number(c) >>> 0) + ' cyc';
 
-                document.getElementById('perf-process').textContent = fmtCyc(procCyc, procMax);
-                document.getElementById('perf-isr').textContent     = fmtCyc(isrCyc, isrMax);
-                /* CPU load: ISR cycles per 10 kHz sample period; budget = 1/10kHz = 100 us. */
-                const cpuPct = (cycToUs(isrCyc) / 100.0) * 100.0;
+                document.getElementById('perf-process').textContent = fmtPeak(procMax);
+                document.getElementById('perf-isr').textContent     = fmtPeak(isrMax);
                 const peakPct = (cycToUs(isrMax) / 100.0) * 100.0;
-                document.getElementById('perf-cpu').textContent =
-                    cpuPct.toFixed(2) + ' %  (peak ' + peakPct.toFixed(2) + ' %)';
+                document.getElementById('perf-cpu').textContent = peakPct.toFixed(2) + ' %';
                 document.getElementById('perf-clock').textContent =
                     'core ' + (hz / 1.0e6).toFixed(1) + ' MHz';
                 document.getElementById('perf-error').textContent = '';
             } catch (e) {
                 document.getElementById('perf-error').textContent = 'perf read failed: ' + e.message;
+            } finally {
+                debugPolling = false;
+            }
+        }
+
+        async function pollMeta() {
+            if (!isConnected || metaPolling) return;
+            metaPolling = true;
+            try {
+                const ready = Number(await readU8('fm_encoder_ready')) !== 0;
+                const stationary = Number(await readU8('fm_encoder_stationary')) !== 0;
+                const commandState = Number(await readU8('fm_command_state')) >>> 0;
+
+                encoderStationary = stationary;
+                document.getElementById('encoder-ready').textContent = ready ? 'READY' : 'ACQUIRING';
+                document.getElementById('encoder-stationary').textContent =
+                    stationary ? 'STATIONARY' : 'MOVING';
+                setCommandButtonsDisabled(commandState === COMMAND_STATE.BUSY || activeCommand !== null);
+            } catch (e) {
+                document.getElementById('angle-error').textContent =
+                    'status read failed: ' + (e.message || String(e));
+            } finally {
+                metaPolling = false;
             }
         }
 
         /* ---------- Poll scheduling ---------- */
         function startPolling() {
-            stopPolling();
+            stopViewPolling();
             if (activeTab === 'demo') {
                 demoTimer = setInterval(pollMonitor, 100);
                 pollMonitor();
             } else {
-                debugTimer = setInterval(pollDiag, 400);
+                debugTimer = setInterval(pollDiag, 1000);
                 pollDiag();
             }
+            metaTimer = setInterval(pollMeta, 1000);
+            pollMeta();
         }
-        function stopPolling() {
+        function stopViewPolling() {
             if (demoTimer)  { clearInterval(demoTimer);  demoTimer = null; }
             if (debugTimer) { clearInterval(debugTimer); debugTimer = null; }
+            if (metaTimer) { clearInterval(metaTimer); metaTimer = null; }
+        }
+        function stopCommandPolling() {
+            if (commandTimer) { clearInterval(commandTimer); commandTimer = null; }
+        }
+        function stopPolling() {
+            stopViewPolling();
+            stopCommandPolling();
         }
 
         function setActiveTab(name) {
@@ -953,21 +1006,87 @@
         }
 
         /* ---------- Action handlers ---------- */
-        async function runCommand(varName, btnId, statusId, label) {
-            const btn = document.getElementById(btnId);
+        function setCommandButtonsDisabled(disabled) {
+            ['btn-zero', 'btn-factory', 'btn-erase'].forEach(id => {
+                document.getElementById(id).disabled = disabled;
+            });
+        }
+
+        async function pollCommandState() {
+            if (!isConnected || commandPolling) return;
+            commandPolling = true;
+            try {
+                const pending = Number(await readU8('fm_command')) >>> 0;
+                const state = Number(await readU8('fm_command_state')) >>> 0;
+                const status = Number(await readU32('fm_command_status')) >>> 0;
+                const progress = Number(await readU8('fm_factory_cal_progress')) >>> 0;
+
+                document.getElementById('factory-fill').style.width = Math.min(progress, 100) + '%';
+                document.getElementById('factory-text').textContent = Math.min(progress, 100) + '%';
+
+                if (activeCommand) {
+                    const st = document.getElementById(activeCommand.statusId);
+                    if (state === COMMAND_STATE.BUSY) {
+                        st.textContent = activeCommand.runningLabel;
+                        st.className = 'btn-status is-running';
+                    } else if (pending === 0 && Date.now() >= activeCommand.pendingUntil &&
+                               state === COMMAND_STATE.DONE) {
+                        st.textContent = 'Done';
+                        st.className = 'btn-status is-done';
+                        activeCommand = null;
+                        stopCommandPolling();
+                    } else if (pending === 0 && Date.now() >= activeCommand.pendingUntil &&
+                               state === COMMAND_STATE.ERROR) {
+                        const message = commandStatusName(status);
+                        st.textContent = message;
+                        st.className = 'btn-status is-fail';
+                        document.getElementById('control-error').textContent = message;
+                        activeCommand = null;
+                        stopCommandPolling();
+                    }
+                }
+
+                setCommandButtonsDisabled(state === COMMAND_STATE.BUSY || activeCommand !== null);
+            } catch (e) {
+                document.getElementById('control-error').textContent =
+                    'command status read failed: ' + e.message;
+            } finally {
+                commandPolling = false;
+            }
+        }
+
+        async function runCommand(command, statusId, runningLabel, confirmText) {
             const st  = document.getElementById(statusId);
             try {
                 if (!pcm || !isConnected) throw new Error('Not connected');
-                btn.disabled = true;
-                if (st) { st.textContent = label || 'Sending'; st.className = 'btn-status is-running'; }
-                await pcm.WriteUIntVariable(varName, 1, 1);
-                if (st) { st.textContent = 'Done'; st.className = 'btn-status is-done'; }
+                if (activeCommand) throw new Error('Another command is running');
+                if (confirmText && !window.confirm(confirmText)) return;
+
+                document.getElementById('control-error').textContent = '';
+                st.textContent = 'Sending';
+                st.className = 'btn-status is-running';
+                activeCommand = {
+                    statusId,
+                    runningLabel,
+                    pendingUntil: Date.now() + 150,
+                };
+                setCommandButtonsDisabled(true);
+                await serialRpc(() => pcm.WriteUIntVariable('fm_command', 1, command));
+                startCommandPolling();
             } catch (err) {
-                document.getElementById('control-error').textContent = label + ' failed: ' + err.message;
-                if (st) { st.textContent = 'Failed'; st.className = 'btn-status is-fail'; }
-            } finally {
-                setTimeout(() => { btn.disabled = false; }, 800);
+                activeCommand = null;
+                setCommandButtonsDisabled(false);
+                stopCommandPolling();
+                document.getElementById('control-error').textContent = runningLabel + ' failed: ' + err.message;
+                st.textContent = 'Failed';
+                st.className = 'btn-status is-fail';
             }
+        }
+
+        function startCommandPolling() {
+            stopCommandPolling();
+            commandTimer = setInterval(pollCommandState, 250);
+            pollCommandState();
         }
 
         /* ---------- Clock ---------- */
@@ -984,13 +1103,14 @@
             tickClock(); setInterval(tickClock, 1000);
 
             document.getElementById('btn-zero').addEventListener('click', () =>
-                runCommand('fm_zero_ctrl', 'btn-zero', 'zero-status', 'Zeroing'));
-            document.getElementById('btn-turn-reset').addEventListener('click', () =>
-                runCommand('fm_turn_reset_ctrl', 'btn-turn-reset', 'turn-reset-status', 'Resetting'));
+                runCommand(COMMAND.ZERO_SAVE, 'zero-status', 'Saving',
+                           'Set the current stationary position as zero and save it?'));
             document.getElementById('btn-factory').addEventListener('click', () =>
-                runCommand('fm_factory_cal_ctrl', 'btn-factory', null, 'Factory cal'));
-            document.getElementById('btn-reset').addEventListener('click', () =>
-                runCommand('fm_reset_ctrl', 'btn-reset', 'reset-status', 'Resetting'));
+                runCommand(COMMAND.FACTORY_CAL, 'factory-status', 'Running',
+                           'Start factory calibration? Rotate the encoder through a full turn.'));
+            document.getElementById('btn-erase').addEventListener('click', () =>
+                runCommand(COMMAND.ERASE_CONFIG, 'erase-status', 'Erasing',
+                           'Erase the saved calibration and zero position?'));
 
             document.querySelectorAll('.tab').forEach(t =>
                 t.addEventListener('click', () => setActiveTab(t.dataset.tab)));

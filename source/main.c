@@ -21,6 +21,7 @@ static void run_main_loop(void)
     {
         EncoderApp_Service();
         FMSTR_Poll();
+        Heartbeat_Service();
         __WFI();
     }
 }

@@ -6,6 +6,8 @@
 
 #include "app_tformat.h"
 
+#include "app_adc.h"
+
 #include <string.h>
 
 #include "fsl_clock.h"
@@ -17,53 +19,95 @@
 #include "fsl_port.h"
 #include "fsl_reset.h"
 
-#define TFORMAT_BAUD_RATE           2500000U
-#define TFORMAT_ID0_CF              0x02U
-#define TFORMAT_ID3_CF              0x1AU
-#define TFORMAT_SF_VALID            0x00U
-#define TFORMAT_SF_COUNTING_ERROR   0x10U
-#define TFORMAT_ALMC_COUNTING_ERROR 0x04U
-#define TFORMAT_ENID                0x10U
-#define TFORMAT_ID0_FRAME_SIZE      6U
-#define TFORMAT_ID3_FRAME_SIZE      11U
-#define TFORMAT_DMA_CHANNEL         7U
+extern uint32_t SystemCoreClock;
 
-#if defined(DEBUG)
-#define TFORMAT_DIAG_CF             0xF1U
-#define TFORMAT_DIAG_VERSION        1U
-#define TFORMAT_DIAG_FRAME_SIZE     25U
-#define TFORMAT_DIAG_UPDATE_SAMPLES 100U
-#endif
+/* Public T-Format values used by the NXP and TI reference implementations. */
+#define TFORMAT_CF_ID0 0x02U
+#define TFORMAT_CF_ID1 0x8AU
+#define TFORMAT_CF_ID2 0x92U
+#define TFORMAT_CF_ID3 0x1AU
+#define TFORMAT_CF_ID6 0x32U
+#define TFORMAT_CF_ID7 0xBAU
+#define TFORMAT_CF_ID8 0xC2U
+#define TFORMAT_CF_IDC 0x62U
+#define TFORMAT_CF_IDD 0xEAU
 
-#define TFORMAT_DIR_GPIO           GPIO3
-#define TFORMAT_DIR_PORT           PORT3
-#define TFORMAT_DIR_PIN            12U
+#define TFORMAT_LEN_POSITION 6U
+#define TFORMAT_LEN_ENID     4U
+#define TFORMAT_LEN_ID3      11U
+#define TFORMAT_LEN_EEPROM   4U
+#define TFORMAT_LEN_MAX      TFORMAT_LEN_ID3
+
+#define TFORMAT_ENID               0x10U
+#define TFORMAT_SF_COUNTING_ERROR  0x10U
+#define TFORMAT_ADF_ADDRESS_MASK   0x7FU
+#define TFORMAT_ADF_BUSY           0x80U
+
+#define TFORMAT_ALMC_OVERSPEED   0x01U
+#define TFORMAT_ALMC_COUNT_ERROR 0x04U
+
+#define TFORMAT_BAUD_RATE   2500000U
+#define TFORMAT_DMA_CHANNEL 7U
+
+#define TFORMAT_DIR_GPIO GPIO3
+#define TFORMAT_DIR_PORT PORT3
+#define TFORMAT_DIR_PIN  12U
+
+#define TFORMAT_FRAME_GAP_US         12U
+#define TFORMAT_MAX_POSITION_AGE_US  (3000000U / ADC_SAMPLE_RATE_HZ)
+#define TFORMAT_OVERSPEED_DPS        (6000.0f * 6.0f)
+#define TFORMAT_VELOCITY_Q           20U
 
 volatile uint32_t tformat_id0_request_count;
 volatile uint32_t tformat_id3_request_count;
-volatile uint32_t tformat_diag_request_count;
 volatile uint32_t tformat_response_count;
 volatile uint32_t tformat_busy_count;
 volatile uint32_t tformat_unsupported_count;
 volatile uint32_t tformat_uart_error_count;
+volatile uint32_t tformat_stale_count;
+volatile uint32_t tformat_crc_error_count;
+volatile uint32_t tformat_desync_count;
+volatile uint32_t tformat_eeprom_write_count;
+volatile uint32_t tformat_eeprom_error_count;
 
-typedef struct _tformat_frame_set
+typedef struct _tformat_snapshot
 {
-    uint8_t id0[TFORMAT_ID0_FRAME_SIZE];
-    uint8_t id3[TFORMAT_ID3_FRAME_SIZE];
-} tformat_frame_set_t;
+    uint32_t counts;
+    int32_t velocity_counts_per_cycle_q20;
+    uint32_t status;
+    uint32_t cycle;
+    bool ready;
+    bool overspeed;
+} tformat_snapshot_t;
 
-static tformat_frame_set_t s_frames[2];
-static volatile uint8_t s_active_frame;
+static tformat_snapshot_t s_snapshot[2];
+static volatile uint8_t s_active_snapshot;
+
+static uint8_t s_tx_frame[TFORMAT_LEN_MAX];
 static volatile bool s_tx_busy;
 static edma_handle_t s_tx_dma_handle;
 static lpuart_edma_handle_t s_lpuart_edma_handle;
 
-#if defined(DEBUG)
-static uint8_t s_diag_frames[2][TFORMAT_DIAG_FRAME_SIZE];
-static volatile uint8_t s_active_diag_frame;
-static uint32_t s_diag_last_sample_count;
-#endif
+static uint8_t s_eeprom[TFORMAT_EEPROM_SIZE];
+static volatile bool s_eeprom_busy;
+static uint8_t s_eeprom_pending_address;
+static uint8_t s_eeprom_previous_value;
+
+static uint8_t s_rx_frame[4];
+static uint8_t s_rx_len;
+static uint32_t s_rx_last_cycle;
+
+static volatile uint32_t s_reset_requests;
+static volatile bool s_position_fresh;
+
+static uint32_t s_gap_cycles;
+static uint32_t s_stale_cycles;
+static float s_velocity_scale;
+
+static void discard_until_gap(void)
+{
+    s_rx_len = (uint8_t)sizeof(s_rx_frame);
+}
 
 static uint8_t tformat_crc(const uint8_t *data, uint32_t size)
 {
@@ -77,126 +121,308 @@ static uint8_t tformat_crc(const uint8_t *data, uint32_t size)
         remainder ^= data[byte_index];
         for (bit_index = 0U; bit_index < 8U; bit_index++)
         {
-            remainder = (uint8_t)((remainder & 0x80U) != 0U ? (remainder << 1U) ^ 0x01U
-                                                                  : remainder << 1U);
+            if ((remainder & 0x80U) != 0U)
+            {
+                remainder = (uint8_t)((remainder << 1U) ^ 0x01U);
+            }
+            else
+            {
+                remainder = (uint8_t)(remainder << 1U);
+            }
         }
     }
 
     return remainder;
 }
 
-#if defined(DEBUG)
-static void write_u32_le(uint8_t *data, uint32_t value)
+void TFormat_Publish(const encoder_result_t *result, bool ready)
 {
-    data[0] = (uint8_t)value;
-    data[1] = (uint8_t)(value >> 8U);
-    data[2] = (uint8_t)(value >> 16U);
-    data[3] = (uint8_t)(value >> 24U);
-}
+    const uint8_t next = s_active_snapshot ^ 1U;
+    tformat_snapshot_t *snapshot = &s_snapshot[next];
+    const float velocity_q20 = result->angular_velocity_dps * s_velocity_scale;
 
-static void write_float_le(uint8_t *data, float value)
-{
-    uint32_t bits;
-
-    memcpy(&bits, &value, sizeof(bits));
-    write_u32_le(data, bits);
-}
-
-static void build_diag_frame(uint8_t *frame,
-                             uint32_t encoder_status,
-                             bool calibrated,
-                             uint32_t calibration_source,
-                             float mag16_raw,
-                             float mag15_raw,
-                             uint32_t adc_sample_count,
-                             uint32_t adc_overrun_count)
-{
-    frame[0] = TFORMAT_DIAG_CF;
-    frame[1] = TFORMAT_DIAG_VERSION;
-    frame[2] = calibrated ? 1U : 0U;
-    frame[3] = (uint8_t)calibration_source;
-    write_u32_le(&frame[4], encoder_status);
-    write_float_le(&frame[8], mag16_raw);
-    write_float_le(&frame[12], mag15_raw);
-    write_u32_le(&frame[16], adc_sample_count);
-    write_u32_le(&frame[20], adc_overrun_count);
-    frame[24] = tformat_crc(frame, TFORMAT_DIAG_FRAME_SIZE - 1U);
-}
-#endif
-
-static void build_frames(tformat_frame_set_t *frames, uint32_t angle_counts, bool valid)
-{
-    uint16_t position = (uint16_t)angle_counts;
-    uint8_t sf = valid ? TFORMAT_SF_VALID : TFORMAT_SF_COUNTING_ERROR;
-    uint8_t almc = valid ? 0U : TFORMAT_ALMC_COUNTING_ERROR;
-
-    frames->id0[0] = TFORMAT_ID0_CF;
-    frames->id0[1] = sf;
-    frames->id0[2] = (uint8_t)position;
-    frames->id0[3] = (uint8_t)(position >> 8U);
-    frames->id0[4] = 0U;
-    frames->id0[5] = tformat_crc(frames->id0, TFORMAT_ID0_FRAME_SIZE - 1U);
-
-    frames->id3[0] = TFORMAT_ID3_CF;
-    frames->id3[1] = sf;
-    frames->id3[2] = (uint8_t)position;
-    frames->id3[3] = (uint8_t)(position >> 8U);
-    frames->id3[4] = 0U;
-    frames->id3[5] = TFORMAT_ENID;
-    frames->id3[6] = 0U;
-    frames->id3[7] = 0U;
-    frames->id3[8] = 0U;
-    frames->id3[9] = almc;
-    frames->id3[10] = tformat_crc(frames->id3, TFORMAT_ID3_FRAME_SIZE - 1U);
-}
-
-void TFormat_Publish(uint32_t angle_counts, uint32_t encoder_status, bool calibrated)
-{
-    uint8_t next_frame = s_active_frame ^ 1U;
-    bool valid = calibrated && (encoder_status == 0U);
-
-    build_frames(&s_frames[next_frame], angle_counts, valid);
+    snapshot->counts = result->angle_counts;
+    snapshot->velocity_counts_per_cycle_q20 =
+        (int32_t)(velocity_q20 + ((velocity_q20 >= 0.0f) ? 0.5f : -0.5f));
+    snapshot->status = result->status;
+    snapshot->ready = ready;
+    snapshot->overspeed = (result->angular_velocity_dps > TFORMAT_OVERSPEED_DPS) ||
+                          (result->angular_velocity_dps < -TFORMAT_OVERSPEED_DPS);
+    snapshot->cycle = DWT->CYCCNT;
     __DMB();
-    s_active_frame = next_frame;
+    s_active_snapshot = next;
+    s_position_fresh = true;
 }
 
-void TFormat_PublishDiagnostics(uint32_t encoder_status,
-                                bool calibrated,
-                                uint32_t calibration_source,
-                                float mag16_raw,
-                                float mag15_raw,
-                                uint32_t adc_sample_count,
-                                uint32_t adc_overrun_count)
+static uint32_t extrapolate(const tformat_snapshot_t *snapshot, uint32_t age_cycles)
 {
-#if defined(DEBUG)
-    uint8_t next_frame;
+    const int64_t product =
+        (int64_t)snapshot->velocity_counts_per_cycle_q20 * (int64_t)age_cycles;
+    const int32_t delta = (int32_t)(product / (int64_t)(1UL << TFORMAT_VELOCITY_Q));
+    int32_t counts = (int32_t)snapshot->counts + delta;
 
-    if ((adc_sample_count - s_diag_last_sample_count) < TFORMAT_DIAG_UPDATE_SAMPLES)
+    counts %= (int32_t)ENCODER_COUNTS_PER_REV;
+    if (counts < 0)
     {
-        return;
+        counts += (int32_t)ENCODER_COUNTS_PER_REV;
     }
 
-    s_diag_last_sample_count = adc_sample_count;
-    next_frame = s_active_diag_frame ^ 1U;
-    build_diag_frame(s_diag_frames[next_frame],
-                     encoder_status,
-                     calibrated,
-                     calibration_source,
-                     mag16_raw,
-                     mag15_raw,
-                     adc_sample_count,
-                     adc_overrun_count);
-    __DMB();
-    s_active_diag_frame = next_frame;
-#else
-    (void)encoder_status;
-    (void)calibrated;
-    (void)calibration_source;
-    (void)mag16_raw;
-    (void)mag15_raw;
-    (void)adc_sample_count;
-    (void)adc_overrun_count;
-#endif
+    return (uint32_t)counts;
+}
+
+static uint8_t compute_almc(const tformat_snapshot_t *snapshot, uint32_t age_cycles)
+{
+    uint8_t almc = 0U;
+
+    if (age_cycles > s_stale_cycles)
+    {
+        s_position_fresh = false;
+    }
+
+    if (!s_position_fresh)
+    {
+        tformat_stale_count++;
+        almc |= TFORMAT_ALMC_COUNT_ERROR;
+    }
+
+    if (!snapshot->ready ||
+        ((snapshot->status & ENCODER_STATUS_POSITION_INVALID_MASK) != 0U))
+    {
+        almc |= TFORMAT_ALMC_COUNT_ERROR;
+    }
+
+    if (snapshot->overspeed)
+    {
+        almc |= TFORMAT_ALMC_OVERSPEED;
+    }
+
+    return almc;
+}
+
+static void fill_position(uint8_t offset, uint32_t position)
+{
+    s_tx_frame[offset] = (uint8_t)position;
+    s_tx_frame[offset + 1U] = (uint8_t)(position >> 8U);
+    s_tx_frame[offset + 2U] = 0U;
+}
+
+static uint8_t build_response(uint8_t cf, const uint8_t *request)
+{
+    const tformat_snapshot_t *snapshot = &s_snapshot[s_active_snapshot];
+    const uint32_t age_cycles = DWT->CYCCNT - snapshot->cycle;
+    const uint8_t almc = compute_almc(snapshot, age_cycles);
+    const uint8_t sf = ((almc & TFORMAT_ALMC_COUNT_ERROR) != 0U) ?
+                           TFORMAT_SF_COUNTING_ERROR : 0U;
+    const uint32_t position = ((almc & TFORMAT_ALMC_COUNT_ERROR) == 0U) ?
+                                  extrapolate(snapshot, age_cycles) :
+                                  snapshot->counts;
+    uint8_t length;
+
+    s_tx_frame[0] = cf;
+
+    switch (cf)
+    {
+        case TFORMAT_CF_ID1:
+            s_tx_frame[1] = sf;
+            s_tx_frame[2] = 0U;
+            s_tx_frame[3] = 0U;
+            s_tx_frame[4] = 0U;
+            length = TFORMAT_LEN_POSITION;
+            break;
+
+        case TFORMAT_CF_ID2:
+            s_tx_frame[1] = sf;
+            s_tx_frame[2] = TFORMAT_ENID;
+            length = TFORMAT_LEN_ENID;
+            break;
+
+        case TFORMAT_CF_ID3:
+            s_tx_frame[1] = sf;
+            fill_position(2U, position);
+            s_tx_frame[5] = TFORMAT_ENID;
+            s_tx_frame[6] = 0U;
+            s_tx_frame[7] = 0U;
+            s_tx_frame[8] = 0U;
+            s_tx_frame[9] = almc;
+            length = TFORMAT_LEN_ID3;
+            break;
+
+        case TFORMAT_CF_ID6:
+        {
+            const uint8_t address = request[1] & TFORMAT_ADF_ADDRESS_MASK;
+
+            if (!s_eeprom_busy)
+            {
+                s_eeprom_pending_address = address;
+                s_eeprom_previous_value = s_eeprom[address];
+                s_eeprom[address] = request[2];
+                s_eeprom_busy = true;
+                tformat_eeprom_write_count++;
+            }
+            s_tx_frame[1] = address | TFORMAT_ADF_BUSY;
+            s_tx_frame[2] = request[2];
+            length = TFORMAT_LEN_EEPROM;
+            break;
+        }
+
+        case TFORMAT_CF_IDD:
+        {
+            const uint8_t address = request[1] & TFORMAT_ADF_ADDRESS_MASK;
+
+            s_tx_frame[1] = address | (s_eeprom_busy ? TFORMAT_ADF_BUSY : 0U);
+            s_tx_frame[2] = s_eeprom[address];
+            length = TFORMAT_LEN_EEPROM;
+            break;
+        }
+
+        case TFORMAT_CF_ID7:
+            s_reset_requests |= TFORMAT_RESET_ERROR;
+            s_tx_frame[1] = sf;
+            fill_position(2U, position);
+            length = TFORMAT_LEN_POSITION;
+            break;
+
+        case TFORMAT_CF_ID8:
+            s_reset_requests |= TFORMAT_RESET_POSITION;
+            s_tx_frame[1] = sf;
+            fill_position(2U, position);
+            length = TFORMAT_LEN_POSITION;
+            break;
+
+        case TFORMAT_CF_IDC:
+            s_reset_requests |= TFORMAT_RESET_MULTITURN;
+            s_tx_frame[1] = sf;
+            fill_position(2U, position);
+            length = TFORMAT_LEN_POSITION;
+            break;
+
+        default:
+            s_tx_frame[1] = sf;
+            fill_position(2U, position);
+            length = TFORMAT_LEN_POSITION;
+            break;
+    }
+
+    s_tx_frame[length - 1U] = tformat_crc(s_tx_frame, length - 1U);
+    return length;
+}
+
+static uint8_t request_length(uint8_t cf)
+{
+    switch (cf)
+    {
+        case TFORMAT_CF_ID0:
+        case TFORMAT_CF_ID1:
+        case TFORMAT_CF_ID2:
+        case TFORMAT_CF_ID3:
+        case TFORMAT_CF_ID7:
+        case TFORMAT_CF_ID8:
+        case TFORMAT_CF_IDC:
+            return 1U;
+
+        case TFORMAT_CF_IDD:
+            return 3U;
+
+        case TFORMAT_CF_ID6:
+            return 4U;
+
+        default:
+            return 0U;
+    }
+}
+
+static void count_request(uint8_t cf)
+{
+    if (cf == TFORMAT_CF_ID0)
+    {
+        tformat_id0_request_count++;
+    }
+    else if (cf == TFORMAT_CF_ID3)
+    {
+        tformat_id3_request_count++;
+    }
+}
+
+uint32_t TFormat_TakeResetRequests(void)
+{
+    const uint32_t irq_mask = DisableGlobalIRQ();
+    const uint32_t requests = s_reset_requests;
+
+    s_reset_requests = 0U;
+    EnableGlobalIRQ(irq_mask);
+    return requests;
+}
+
+void TFormat_LoadEeprom(const uint8_t data[TFORMAT_EEPROM_SIZE])
+{
+    const uint32_t irq_mask = DisableGlobalIRQ();
+
+    memcpy(s_eeprom, data, sizeof(s_eeprom));
+    s_eeprom_busy = false;
+    EnableGlobalIRQ(irq_mask);
+}
+
+void TFormat_CopyEeprom(uint8_t data[TFORMAT_EEPROM_SIZE])
+{
+    const uint32_t irq_mask = DisableGlobalIRQ();
+
+    memcpy(data, s_eeprom, sizeof(s_eeprom));
+    EnableGlobalIRQ(irq_mask);
+}
+
+bool TFormat_EepromWritePending(void)
+{
+    return s_eeprom_busy;
+}
+
+void TFormat_CompleteEepromWrite(bool saved)
+{
+    const uint32_t irq_mask = DisableGlobalIRQ();
+
+    if (s_eeprom_busy)
+    {
+        if (!saved)
+        {
+            s_eeprom[s_eeprom_pending_address] = s_eeprom_previous_value;
+            tformat_eeprom_error_count++;
+        }
+        s_eeprom_busy = false;
+    }
+    EnableGlobalIRQ(irq_mask);
+}
+
+bool TFormat_StorageBegin(void)
+{
+    const uint32_t irq_mask = DisableGlobalIRQ();
+
+    if (s_tx_busy)
+    {
+        EnableGlobalIRQ(irq_mask);
+        return false;
+    }
+
+    LPUART_DisableInterrupts(LPUART2, (uint32_t)kLPUART_RxDataRegFullInterruptEnable);
+    while ((LPUART_GetStatusFlags(LPUART2) & (uint32_t)kLPUART_RxDataRegFullFlag) != 0U)
+    {
+        (void)LPUART_ReadByte(LPUART2);
+    }
+    discard_until_gap();
+    EnableGlobalIRQ(irq_mask);
+    return true;
+}
+
+void TFormat_StorageEnd(void)
+{
+    const uint32_t irq_mask = DisableGlobalIRQ();
+
+    while ((LPUART_GetStatusFlags(LPUART2) & (uint32_t)kLPUART_RxDataRegFullFlag) != 0U)
+    {
+        (void)LPUART_ReadByte(LPUART2);
+    }
+    s_rx_last_cycle = DWT->CYCCNT;
+    discard_until_gap();
+    LPUART_EnableInterrupts(LPUART2, (uint32_t)kLPUART_RxDataRegFullInterruptEnable);
+    EnableGlobalIRQ(irq_mask);
 }
 
 static void tformat_tx_callback(LPUART_Type *base,
@@ -210,6 +436,8 @@ static void tformat_tx_callback(LPUART_Type *base,
 
     GPIO_PinWrite(TFORMAT_DIR_GPIO, TFORMAT_DIR_PIN, 0U);
     s_tx_busy = false;
+    discard_until_gap();
+
     if (status == kStatus_LPUART_TxIdle)
     {
         tformat_response_count++;
@@ -220,37 +448,16 @@ static void tformat_tx_callback(LPUART_Type *base,
     }
 }
 
-static void send_response(uint8_t cf)
+static void send_response(uint8_t cf, const uint8_t *request)
 {
-    tformat_frame_set_t *frames = &s_frames[s_active_frame];
     lpuart_transfer_t transfer;
-    status_t status;
 
-    if (cf == TFORMAT_ID0_CF)
-    {
-        transfer.data = frames->id0;
-        transfer.dataSize = TFORMAT_ID0_FRAME_SIZE;
-    }
-    else
-    {
-#if defined(DEBUG)
-        if (cf == TFORMAT_DIAG_CF)
-        {
-            transfer.data = s_diag_frames[s_active_diag_frame];
-            transfer.dataSize = TFORMAT_DIAG_FRAME_SIZE;
-        }
-        else
-#endif
-        {
-            transfer.data = frames->id3;
-            transfer.dataSize = TFORMAT_ID3_FRAME_SIZE;
-        }
-    }
+    transfer.data = s_tx_frame;
+    transfer.dataSize = build_response(cf, request);
 
     s_tx_busy = true;
     GPIO_PinWrite(TFORMAT_DIR_GPIO, TFORMAT_DIR_PIN, 1U);
-    status = LPUART_SendEDMA(LPUART2, &s_lpuart_edma_handle, &transfer);
-    if (status != kStatus_Success)
+    if (LPUART_SendEDMA(LPUART2, &s_lpuart_edma_handle, &transfer) != kStatus_Success)
     {
         GPIO_PinWrite(TFORMAT_DIR_GPIO, TFORMAT_DIR_PIN, 0U);
         s_tx_busy = false;
@@ -267,13 +474,15 @@ void TFormat_Init(void)
     lpuart_config_t lpuart_config;
     edma_config_t edma_config;
 
-    build_frames(&s_frames[0], 0U, false);
-    build_frames(&s_frames[1], 0U, false);
+    CoreDebug->DEMCR |= CoreDebug_DEMCR_TRCENA_Msk;
+    DWT->CYCCNT = 0U;
+    DWT->CTRL |= DWT_CTRL_CYCCNTENA_Msk;
 
-#if defined(DEBUG)
-    build_diag_frame(s_diag_frames[0], 0U, false, 0U, 0.0f, 0.0f, 0U, 0U);
-    build_diag_frame(s_diag_frames[1], 0U, false, 0U, 0.0f, 0.0f, 0U, 0U);
-#endif
+    s_gap_cycles = (SystemCoreClock / 1000000U) * TFORMAT_FRAME_GAP_US;
+    s_stale_cycles = (SystemCoreClock / 1000000U) * TFORMAT_MAX_POSITION_AGE_US;
+    s_velocity_scale = ((float)ENCODER_COUNTS_PER_REV * (float)(1UL << TFORMAT_VELOCITY_Q)) /
+                       (360.0f * (float)SystemCoreClock);
+    memset(s_eeprom, 0xFF, sizeof(s_eeprom));
 
     PORT_SetPinMux(TFORMAT_DIR_PORT, TFORMAT_DIR_PIN, kPORT_MuxAsGpio);
     GPIO_PinInit(TFORMAT_DIR_GPIO, TFORMAT_DIR_PIN, &direction_config);
@@ -304,12 +513,66 @@ void TFormat_Init(void)
     LPUART_EnableInterrupts(LPUART2, (uint32_t)kLPUART_RxDataRegFullInterruptEnable);
 }
 
+static void receive_byte(uint8_t byte)
+{
+    const uint32_t now = DWT->CYCCNT;
+    const bool gap = (now - s_rx_last_cycle) > s_gap_cycles;
+    uint8_t expected;
+
+    s_rx_last_cycle = now;
+    if (gap)
+    {
+        s_rx_len = 0U;
+    }
+
+    if (s_rx_len >= sizeof(s_rx_frame))
+    {
+        tformat_desync_count++;
+        return;
+    }
+
+    s_rx_frame[s_rx_len++] = byte;
+    expected = request_length(s_rx_frame[0]);
+    if (expected == 0U)
+    {
+        tformat_unsupported_count++;
+        discard_until_gap();
+        return;
+    }
+
+    if (s_rx_len < expected)
+    {
+        return;
+    }
+
+    if ((expected > 1U) &&
+        (tformat_crc(s_rx_frame, expected - 1U) != s_rx_frame[expected - 1U]))
+    {
+        tformat_crc_error_count++;
+        discard_until_gap();
+        return;
+    }
+
+    count_request(s_rx_frame[0]);
+    if (s_tx_busy)
+    {
+        tformat_busy_count++;
+    }
+    else
+    {
+        send_response(s_rx_frame[0], s_rx_frame);
+    }
+    discard_until_gap();
+}
+
 void LPUART2_IRQHandler(void)
 {
-    uint32_t status = LPUART_GetStatusFlags(LPUART2);
-    uint32_t enabled_interrupts = LPUART_GetEnabledInterrupts(LPUART2);
-    const uint32_t error_flags = (uint32_t)kLPUART_RxOverrunFlag | (uint32_t)kLPUART_NoiseErrorFlag |
-                                 (uint32_t)kLPUART_FramingErrorFlag | (uint32_t)kLPUART_ParityErrorFlag;
+    const uint32_t status = LPUART_GetStatusFlags(LPUART2);
+    const uint32_t enabled_interrupts = LPUART_GetEnabledInterrupts(LPUART2);
+    const uint32_t error_flags = (uint32_t)kLPUART_RxOverrunFlag |
+                                 (uint32_t)kLPUART_NoiseErrorFlag |
+                                 (uint32_t)kLPUART_FramingErrorFlag |
+                                 (uint32_t)kLPUART_ParityErrorFlag;
 
     if (((status & (uint32_t)kLPUART_TransmissionCompleteFlag) != 0U) &&
         ((enabled_interrupts & (uint32_t)kLPUART_TransmissionCompleteInterruptEnable) != 0U))
@@ -321,50 +584,18 @@ void LPUART2_IRQHandler(void)
     {
         tformat_uart_error_count++;
         (void)LPUART_ClearStatusFlags(LPUART2, status & error_flags);
+        discard_until_gap();
+        while ((LPUART_GetStatusFlags(LPUART2) & (uint32_t)kLPUART_RxDataRegFullFlag) != 0U)
+        {
+            (void)LPUART_ReadByte(LPUART2);
+        }
+        SDK_ISR_EXIT_BARRIER;
+        return;
     }
 
     while ((LPUART_GetStatusFlags(LPUART2) & (uint32_t)kLPUART_RxDataRegFullFlag) != 0U)
     {
-        uint8_t cf = LPUART_ReadByte(LPUART2);
-        bool supported = (cf == TFORMAT_ID0_CF) || (cf == TFORMAT_ID3_CF);
-
-#if defined(DEBUG)
-        supported = supported || (cf == TFORMAT_DIAG_CF);
-#endif
-
-        if (!supported)
-        {
-            tformat_unsupported_count++;
-        }
-        else
-        {
-            if (cf == TFORMAT_ID0_CF)
-            {
-                tformat_id0_request_count++;
-            }
-            else
-            {
-#if defined(DEBUG)
-                if (cf == TFORMAT_DIAG_CF)
-                {
-                    tformat_diag_request_count++;
-                }
-                else
-#endif
-                {
-                    tformat_id3_request_count++;
-                }
-            }
-
-            if (s_tx_busy)
-            {
-                tformat_busy_count++;
-            }
-            else
-            {
-                send_response(cf);
-            }
-        }
+        receive_byte(LPUART_ReadByte(LPUART2));
     }
 
     SDK_ISR_EXIT_BARRIER;

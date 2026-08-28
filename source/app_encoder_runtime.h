@@ -10,37 +10,36 @@
 extern "C" {
 #endif
 
+#define ENCODER_CAL_SOURCE_DEFAULT         (0U)
+#define ENCODER_CAL_SOURCE_NVM             (1U)
+#define ENCODER_CAL_SOURCE_FACTORY_PENDING (2U)
+#define ENCODER_CAL_SOURCE_INVALID         (3U)
+
+#define FM_COMMAND_NONE          (0U)
+#define FM_COMMAND_ZERO_SAVE     (1U)
+#define FM_COMMAND_FACTORY_CAL   (2U)
+#define FM_COMMAND_ERASE_CONFIG  (3U)
+
+#define FM_COMMAND_STATE_IDLE  (0U)
+#define FM_COMMAND_STATE_BUSY  (1U)
+#define FM_COMMAND_STATE_DONE  (2U)
+#define FM_COMMAND_STATE_ERROR (3U)
+
+#define FM_COMMAND_STATUS_OK          (0U)
+#define FM_COMMAND_STATUS_MOVING      (1U)
+#define FM_COMMAND_STATUS_BUSY        (2U)
+#define FM_COMMAND_STATUS_STORAGE     (3U)
+#define FM_COMMAND_STATUS_CALIBRATION (4U)
+#define FM_COMMAND_STATUS_NOT_READY   (5U)
+
 extern encoder_result_t encoder_result;
-/* Raw 4-channel ADC sample, refreshed every ADC ISR. Exposed for the
- * FreeMASTER oscilloscope so the host can plot the four OPAMP outputs
- * directly. Read/write tearing is possible (8 bytes, non-atomic on M33)
- * but harmless for scope visualisation. */
 extern adc_sample_result_t adc_result;
 extern volatile uint32_t adc_sample_count;
 extern volatile uint32_t adc_overrun_count;
 extern volatile uint32_t encoder_calibration_source;
-
-/* Compute-time profiler outputs sampled with the Cortex-M33 DWT cycle counter.
- *   process_cycles : last encoder_process() call duration.
- *   isr_cycles     : last full ADC ISR callback (process + AGC + snapshot copy).
- *   *_max          : peak observed since boot.
- *   core_clock_hz  : CPU frequency, lets the UI convert cycles to microseconds
- *                    and to a % CPU utilisation at the 10 kHz sample rate. */
-extern volatile uint32_t encoder_perf_process_cycles;
 extern volatile uint32_t encoder_perf_process_max;
-extern volatile uint32_t encoder_perf_isr_cycles;
 extern volatile uint32_t encoder_perf_isr_max;
 extern volatile uint32_t encoder_perf_core_clock_hz;
-
-#define ENCODER_CAL_SOURCE_DEFAULT (0U)
-#define ENCODER_CAL_SOURCE_NVM (1U)
-#define ENCODER_CAL_SOURCE_FACTORY_PENDING (2U)
-#define ENCODER_CAL_SOURCE_INVALID (3U)
-
-#define ENCODER_FACTORY_CAL_STATE_IDLE (0U)
-#define ENCODER_FACTORY_CAL_STATE_RUNNING (1U)
-#define ENCODER_FACTORY_CAL_STATE_DONE (2U)
-#define ENCODER_FACTORY_CAL_STATE_FAILED (3U)
 
 void EncoderApp_Init(void);
 void EncoderApp_Service(void);
