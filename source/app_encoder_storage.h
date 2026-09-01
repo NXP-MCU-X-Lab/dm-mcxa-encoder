@@ -5,6 +5,7 @@
 #include <stdint.h>
 
 #include "app_encoder.h"
+#include "app_tformat.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -13,13 +14,13 @@ extern "C" {
 #define ENCODER_STORAGE_FLASH_BASE         (0x0003C000UL)
 #define ENCODER_STORAGE_FLASH_SIZE         (0x00004000UL)
 #define ENCODER_STORAGE_SECTOR_SIZE        (0x00002000UL)
-#define ENCODER_STORAGE_RECORD_SIZE        (256U)
-#define ENCODER_STORAGE_EEPROM_SIZE        (128U)
+#define ENCODER_STORAGE_RECORD_SIZE        (1024U)
+#define ENCODER_STORAGE_EEPROM_SIZE        TFORMAT_EEPROM_SIZE
 #define ENCODER_STORAGE_RECORD_COUNT       (ENCODER_STORAGE_FLASH_SIZE / ENCODER_STORAGE_RECORD_SIZE)
 #define ENCODER_STORAGE_RECORDS_PER_SECTOR (ENCODER_STORAGE_SECTOR_SIZE / ENCODER_STORAGE_RECORD_SIZE)
 
 #define ENCODER_STORAGE_MAGIC   (0x324C4345UL)
-#define ENCODER_STORAGE_VERSION (2U)
+#define ENCODER_STORAGE_VERSION (3U)
 
 typedef struct _encoder_persistent_config
 {
@@ -40,7 +41,7 @@ typedef struct _encoder_storage_record
     float mag16;
     float mag15;
     uint8_t eeprom[ENCODER_STORAGE_EEPROM_SIZE];
-    uint8_t reserved[48];
+    uint8_t reserved[182];
     uint32_t crc32;
 } encoder_storage_record_t;
 

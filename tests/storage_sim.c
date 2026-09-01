@@ -69,6 +69,10 @@ static void test_record_vectors(void)
 
     records[3].eeprom[17] ^= 0x01U;
     CHECK(!EncoderStorage_ValidateRecord(&records[3]));
+
+    EncoderStorage_PackRecord(&records[3], &input, 2U);
+    records[3].version = ENCODER_STORAGE_VERSION - 1U;
+    CHECK(!EncoderStorage_ValidateRecord(&records[3]));
 }
 
 static void test_persistence(void)
@@ -90,7 +94,7 @@ static void test_append_power_loss(void)
 {
     int32_t failure_point;
 
-    for (failure_point = 0; failure_point <= 2; failure_point++)
+    for (failure_point = 0; failure_point <= 8; failure_point++)
     {
         const encoder_persistent_config_t previous = make_config(1U);
         const encoder_persistent_config_t next = make_config(2U);
@@ -114,7 +118,7 @@ static void test_rollover_power_loss(void)
 {
     int32_t failure_point;
 
-    for (failure_point = 0; failure_point <= 4; failure_point++)
+    for (failure_point = 0; failure_point <= 10; failure_point++)
     {
         encoder_persistent_config_t output;
         encoder_persistent_config_t next;

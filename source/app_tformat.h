@@ -16,15 +16,19 @@
 extern "C" {
 #endif
 
-#define TFORMAT_EEPROM_SIZE (128U)
+#define TFORMAT_EEPROM_PAGE_SIZE  (127U)
+#define TFORMAT_EEPROM_DATA_PAGES (6U)
+#define TFORMAT_EEPROM_PAGE_COUNT (8U)
+#define TFORMAT_EEPROM_SIZE       (TFORMAT_EEPROM_PAGE_SIZE * TFORMAT_EEPROM_DATA_PAGES)
 
 #define TFORMAT_RESET_ERROR     (1UL << 0)
 #define TFORMAT_RESET_POSITION  (1UL << 1)
 #define TFORMAT_RESET_MULTITURN (1UL << 2)
 
 void TFormat_Init(void);
-void TFormat_Publish(const encoder_result_t *result, bool ready);
+void TFormat_Publish(const encoder_result_t *result, bool ready, bool stationary);
 uint32_t TFormat_TakeResetRequests(void);
+void TFormat_ReportCountingError(void);
 
 void TFormat_LoadEeprom(const uint8_t data[TFORMAT_EEPROM_SIZE]);
 void TFormat_CopyEeprom(uint8_t data[TFORMAT_EEPROM_SIZE]);

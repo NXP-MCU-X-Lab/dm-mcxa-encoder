@@ -16,7 +16,7 @@ single-turn position through a 2.5 Mbit/s T-Format interface.
 - Runtime center and gain adaptation with automatic persistence
 - Branch validation, last-valid-position hold, and controlled re-lock
 - Standard T-Format ID0/1/2/3/6/7/8/C/D responder on LPUART2/eDMA
-- Persistent zero position and 128-byte encoder EEPROM image
+- Persistent zero position and 762-byte paged encoder EEPROM image
 - Compact FreeMASTER status and service page on LPUART0
 - DWT execution profiling and dual-ADC sample-pair diagnostics
 
@@ -27,7 +27,7 @@ single-turn position through a 2.5 Mbit/s T-Format interface.
 | MCU | NXP MCXA344VLL, Cortex-M33 with FPU, 180 MHz |
 | Analog front end | MCXA OPAMP0/1 and external TLV9062 |
 | Sampling | LPADC0/1, four channels, CTIMER0 trigger, 10 kHz |
-| Persistent storage | Two 8 KB Flash sectors, 256-byte snapshots, sequence and CRC32 |
+| Persistent storage | Two 8 KB Flash sectors, 1024-byte snapshots, sequence and CRC32 |
 | FreeMASTER | LPUART0, 115200 baud, 8N1 |
 | T-Format | LPUART2, 2,500,000 baud, 8N1 |
 
@@ -99,7 +99,7 @@ and the field layout documented by the [TI T-Format reference design](https://ww
 | ID6 | `0x32` | EEPROM write | 4 bytes |
 | ID7 | `0xBA` | Error reset | 6 bytes |
 | ID8 | `0xC2` | Set and save single-turn zero | 6 bytes |
-| IDC | `0x62` | Multi-turn and error reset; ABM remains 0 | 6 bytes |
+| IDC | `0x62` | Multi-turn reset acknowledgement; ABM remains 0 | 6 bytes |
 | IDD | `0xEA` | EEPROM read | 4 bytes |
 
 Every CF byte above is derived, not copied: `sink code 2 | (ID << 3) | (odd parity of
@@ -114,10 +114,23 @@ the native 16-bit count and `ABS2=0`. Multi-turn fields are always zero. CRC use
 polynomial `x^8 + 1` with initial value 0. Invalid or stale position data is held
 at the last valid value and reported as Counting Error through SF and ALMC.
 
-EEPROM writes set the ADF busy bit until the 128-byte image has been saved to
-Flash. Configuration writes are performed only while the shaft is stationary.
-Unsupported control fields are ignored, and the protocol UART emits no
-unsolicited text.
+`SF.ea0` reports Counting Error, `SF.ca0` reports a CF parity error, and
+`SF.ca1` reports a UART delimiter error. `ALMC.CE` reports invalid or stale
+position data and `ALMC.OS` reports speeds above 7200 rpm. Unsupported sensor
+alarms remain zero. Communication errors are latched until a valid ID7 reset;
+an active position fault is asserted again immediately.
+
+ID7, ID8, and IDC execute after ten consecutive identical requests separated by
+at least 40 us. ID8 saves the single-turn zero only when the shaft is stationary;
+a rejected sequence reports Counting Error and is not deferred.
+
+ADF address `0x7F` selects a volatile EEPROM page. Pages 0-5 each expose
+127 persistent bytes (`0x00..0x7E`), for 762 bytes total. Pages 6 and 7 read as
+`0xFF` and ignore writes. A data write keeps ADF busy until the new Flash
+snapshot is verified; while busy, reads and writes return `EDF=0` and a second
+write is rejected. Configuration writes require a stationary shaft. Unsupported
+control fields and EEPROM CRC errors are silently ignored, and the protocol UART
+emits no unsolicited text.
 
 ### Python Host
 
@@ -129,9 +142,15 @@ python tools\tformat_test.py --self-test
 python tools\tformat_test.py --port COM78 --data-id 0 --count 1000 --verbose
 python tools\tformat_test.py --port COM78 --data-id 3 --count 1000
 python tools\tformat_test.py --port COM78 --reset position
-python tools\tformat_test.py --port COM78 --eeprom-write 0x20 0xA5
-python tools\tformat_test.py --port COM78 --eeprom-read 0x20
+python tools\tformat_test.py --port COM78 --page 0 --eeprom-write 0x20 0xA5
+python tools\tformat_test.py --port COM78 --page 0 --eeprom-read 0x20
+python tools\tformat_test.py --port COM78 --page 0 --eeprom-read-page
+python tools\tformat_test.py --port COM78 --eeprom-read-all
+python tools\tformat_test.py --port COM78 --page 0 --eeprom-write-page page0.bin
 ```
+
+`--reset` sends the required ten-frame sequence. A page image is a raw 127-byte
+binary file; full-page writes skip unchanged bytes and verify the final page.
 
 ## Calibration and Operation
 
@@ -172,6 +191,8 @@ Scope or Recorder.
 ## Notes
 
 - The product interface is single-turn; ABM and all multi-turn fields are zero.
+- The current storage version does not migrate older records. Run Factory Cal
+  once after installing firmware that changes the persistent record version.
 - Flash erase/program temporarily pauses sampling and T-Format responses.
 - EEPROM and zero writes remain busy until the shaft is stationary and the new
   snapshot is verified.

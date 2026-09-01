@@ -25,6 +25,7 @@ LPUART_Type *const LPUART2 = &s_lpuart2;
 uint8_t g_stub_tx[32];
 uint32_t g_stub_tx_len;
 uint32_t g_stub_tx_count;
+uint32_t g_stub_uart_status;
 bool g_stub_tx_fail;
 
 uint32_t DisableGlobalIRQ(void) { return 0U; }
@@ -74,11 +75,12 @@ status_t LPUART_Init(LPUART_Type *base, const lpuart_config_t *config, uint32_t 
 
 void LPUART_EnableInterrupts(LPUART_Type *base, uint32_t mask) { (void)base; (void)mask; }
 void LPUART_DisableInterrupts(LPUART_Type *base, uint32_t mask) { (void)base; (void)mask; }
-uint32_t LPUART_GetStatusFlags(LPUART_Type *base) { (void)base; return 0U; }
+uint32_t LPUART_GetStatusFlags(LPUART_Type *base) { (void)base; return g_stub_uart_status; }
 uint32_t LPUART_GetEnabledInterrupts(LPUART_Type *base) { (void)base; return 0U; }
 status_t LPUART_ClearStatusFlags(LPUART_Type *base, uint32_t mask)
 {
-    (void)base; (void)mask;
+    (void)base;
+    g_stub_uart_status &= ~mask;
     return kStatus_Success;
 }
 uint8_t LPUART_ReadByte(LPUART_Type *base) { (void)base; return 0U; }

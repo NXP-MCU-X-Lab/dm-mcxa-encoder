@@ -91,7 +91,7 @@ static uint8_t s_save_pending;
 static bool s_erase_pending;
 static encoder_calibration_t s_pending_calibration;
 static encoder_cal_quality_t s_pending_quality;
-static uint32_t s_deferred_tformat_resets;
+static encoder_persistent_config_t s_storage_config;
 
 static uint32_t s_stationary_anchor;
 static uint32_t s_stationary_count;
@@ -226,7 +226,7 @@ static void encoder_sample_callback(const adc_sample_result_t *sample)
     s_realtime_encoder_result = next_result;
     s_realtime_encoder_ready = ready ? 1U : 0U;
     s_realtime_sequence++;
-    TFormat_Publish(&next_result, ready);
+    TFormat_Publish(&next_result, ready, fm_encoder_stationary != 0U);
     capture_sample_from_isr(&encoder_sample);
 
     isr_cycles = DWT->CYCCNT - isr_start;
@@ -332,7 +332,7 @@ static void consume_capture_sample(void)
             }
             else
             {
-                s_deferred_tformat_resets |= TFORMAT_RESET_POSITION;
+                TFormat_ReportCountingError();
             }
             s_zero_origin = ZERO_ORIGIN_NONE;
             return;
@@ -425,27 +425,25 @@ static void install_calibration(const encoder_calibration_t *calibration,
 
 static void load_startup_configuration(void)
 {
-    encoder_persistent_config_t config;
-    uint8_t empty_eeprom[TFORMAT_EEPROM_SIZE];
     uint32_t sequence;
 
-    if (EncoderStorage_Load(&config, &sequence))
+    if (EncoderStorage_Load(&s_storage_config, &sequence))
     {
         (void)sequence;
-        s_saved_quality = config.quality;
-        TFormat_LoadEeprom(config.eeprom);
+        s_saved_quality = s_storage_config.quality;
+        TFormat_LoadEeprom(s_storage_config.eeprom);
         s_has_persistent_config = true;
-        install_calibration(&config.calibration, ENCODER_CAL_SOURCE_NVM,
+        install_calibration(&s_storage_config.calibration, ENCODER_CAL_SOURCE_NVM,
                             ENCODER_STATUS_OK, true);
         return;
     }
 
-    memset(empty_eeprom, 0xFF, sizeof(empty_eeprom));
+    memset(s_storage_config.eeprom, 0xFF, sizeof(s_storage_config.eeprom));
     memset(&s_saved_quality, 0, sizeof(s_saved_quality));
-    TFormat_LoadEeprom(empty_eeprom);
+    TFormat_LoadEeprom(s_storage_config.eeprom);
     s_has_persistent_config = false;
-    encoder_calibration_set_board_defaults(&config.calibration);
-    install_calibration(&config.calibration,
+    encoder_calibration_set_board_defaults(&s_storage_config.calibration);
+    install_calibration(&s_storage_config.calibration,
                         ENCODER_CAL_SOURCE_DEFAULT,
                         ENCODER_STATUS_CAL_STORAGE_INVALID |
                             ENCODER_STATUS_FACTORY_CAL_REQUIRED,
@@ -464,16 +462,15 @@ static void build_persistent_config(const encoder_calibration_t *calibration,
 static storage_result_t save_configuration(const encoder_calibration_t *calibration,
                                            const encoder_cal_quality_t *quality)
 {
-    encoder_persistent_config_t config;
     bool saved;
 
     if (!TFormat_StorageBegin())
     {
         return STORAGE_RESULT_DEFERRED;
     }
-    build_persistent_config(calibration, quality, &config);
+    build_persistent_config(calibration, quality, &s_storage_config);
     adc_realtime_stop();
-    saved = EncoderStorage_Save(&config);
+    saved = EncoderStorage_Save(&s_storage_config);
     adc_realtime_start();
     TFormat_StorageEnd();
     return saved ? STORAGE_RESULT_SAVED : STORAGE_RESULT_FAILED;
@@ -497,6 +494,10 @@ static void finish_zero_if_ready(void)
         {
             fm_command_state = FM_COMMAND_STATE_ERROR;
             fm_command_status = FM_COMMAND_STATUS_CALIBRATION;
+        }
+        else if (s_zero_origin == ZERO_ORIGIN_TFORMAT)
+        {
+            TFormat_ReportCountingError();
         }
         s_zero_origin = ZERO_ORIGIN_NONE;
         return;
@@ -591,6 +592,11 @@ static void complete_pending_save(void)
             fm_command_status = FM_COMMAND_STATUS_OK;
         }
     }
+    else if ((save_kind == SAVE_PENDING_ZERO) &&
+             (s_zero_origin == ZERO_ORIGIN_TFORMAT))
+    {
+        TFormat_ReportCountingError();
+    }
     else if ((save_kind == SAVE_PENDING_FACTORY) ||
              ((save_kind == SAVE_PENDING_ZERO) && (s_zero_origin == ZERO_ORIGIN_FM)))
     {
@@ -669,16 +675,21 @@ static void service_freemaster_command(void)
 
 static void service_tformat_resets(void)
 {
-    s_deferred_tformat_resets |= TFormat_TakeResetRequests();
-    s_deferred_tformat_resets &= ~TFORMAT_RESET_ERROR;
-    s_deferred_tformat_resets &= ~TFORMAT_RESET_MULTITURN;
+    const uint32_t requests = TFormat_TakeResetRequests();
 
-    if (((s_deferred_tformat_resets & TFORMAT_RESET_POSITION) != 0U) &&
-        (fm_encoder_ready != 0U) && (fm_encoder_stationary != 0U) &&
+    if ((requests & TFORMAT_RESET_POSITION) == 0U)
+    {
+        return;
+    }
+
+    if ((fm_encoder_ready != 0U) && (fm_encoder_stationary != 0U) &&
         capture_is_idle() && (s_save_pending == SAVE_PENDING_NONE) && !s_erase_pending)
     {
-        s_deferred_tformat_resets &= ~TFORMAT_RESET_POSITION;
         start_zero_capture(ZERO_ORIGIN_TFORMAT);
+    }
+    else
+    {
+        TFormat_ReportCountingError();
     }
 }
 

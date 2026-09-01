@@ -160,6 +160,7 @@ void LPUART_TransferEdmaHandleIRQ(LPUART_Type *base, lpuart_edma_handle_t *handl
 extern uint8_t g_stub_tx[32];
 extern uint32_t g_stub_tx_len;
 extern uint32_t g_stub_tx_count;
+extern uint32_t g_stub_uart_status;
 
 /* Set to make LPUART_SendEDMA report failure, which is the one path where the
  * driver clears its busy flag without a transfer ever completing. */

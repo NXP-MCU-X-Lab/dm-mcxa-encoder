@@ -16,7 +16,7 @@
 - 运行时中心与增益自适应，并自动持久化
 - 分支校验、最后有效位置保持和受控重新锁定
 - LPUART2/eDMA 实现标准 T-Format ID0/1/2/3/6/7/8/C/D
-- 持久化单圈零位和 128-byte 编码器 EEPROM 镜像
+- 持久化单圈零位和 762-byte 分页编码器 EEPROM 镜像
 - LPUART0 简化 FreeMASTER 状态与服务页面
 - DWT 执行时间统计和双 ADC 样本配对诊断
 
@@ -27,7 +27,7 @@
 | MCU | NXP MCXA344VLL，Cortex-M33 + FPU，180 MHz |
 | 模拟前端 | MCXA OPAMP0/1 加外部 TLV9062 |
 | 采样 | LPADC0/1，四通道，CTIMER0 触发，10 kHz |
-| 持久化存储 | 两个 8 KB Flash 扇区，256-byte 快照，sequence 与 CRC32 |
+| 持久化存储 | 两个 8 KB Flash 扇区，1024-byte 快照，sequence 与 CRC32 |
 | FreeMASTER | LPUART0，115200 baud，8N1 |
 | T-Format | LPUART2，2,500,000 baud，8N1 |
 
@@ -98,7 +98,7 @@ C:\Keil_v5\UV4\uVision.com -b ind_encoder.uvprojx -t ind_encoder -j0
 | ID6 | `0x32` | EEPROM 写入 | 4 bytes |
 | ID7 | `0xBA` | 错误复位 | 6 bytes |
 | ID8 | `0xC2` | 设置并保存单圈零位 | 6 bytes |
-| IDC | `0x62` | 多圈与错误复位；ABM 保持为 0 | 6 bytes |
+| IDC | `0x62` | 多圈复位应答；ABM 保持为 0 | 6 bytes |
 | IDD | `0xEA` | EEPROM 读取 | 4 bytes |
 
 上表每个 CF 字节都是推导出来的，不是抄的：`sink code 2 | (ID << 3) |
@@ -111,8 +111,20 @@ C:\Keil_v5\UV4\uVision.com -b ind_encoder.uvprojx -t ind_encoder -j0
 `x^8 + 1`，初值为 0。位置无效或过期时保持最后有效值，并通过 SF 和 ALMC
 报告 Counting Error。
 
-EEPROM 写入后 ADF busy 位保持有效，直到 128-byte 镜像写入 Flash。配置写入
-只在转轴静止时执行。不支持的控制字段会被忽略，协议串口不会发送主动文本。
+`SF.ea0` 表示 Counting Error，`SF.ca0` 表示 CF 奇偶错误，`SF.ca1` 表示
+UART 分隔符错误。`ALMC.CE` 表示位置无效或过期，`ALMC.OS` 表示转速超过
+7200 rpm；产品不具备的其他传感器报警固定为 0。通信错误锁存至有效 ID7
+复位；实时位置故障仍存在时会立即重新置位。
+
+ID7、ID8 和 IDC 需要连续发送 10 次相同命令，相邻请求间隔至少 40 us 才执行。
+ID8 只在转轴静止时保存单圈零位；运动时拒绝本次序列、报告 Counting Error，
+停车后不会补执行。
+
+ADF 地址 `0x7F` 是易失的 EEPROM 页选择寄存器。Page0-Page5 每页提供
+127 bytes（`0x00..0x7E`），共 762 bytes 持久区；Page6 和 Page7 始终读取
+`0xFF` 并忽略写入。数据写入后 ADF busy 保持有效，直到新 Flash 快照校验
+完成；busy 期间读写返回 `EDF=0`，第二笔写入被拒绝。配置写入要求转轴静止。
+不支持的控制字段和 EEPROM CRC 错误会被静默忽略，协议串口不会发送主动文本。
 
 ### Python 主站
 
@@ -124,9 +136,15 @@ python tools\tformat_test.py --self-test
 python tools\tformat_test.py --port COM78 --data-id 0 --count 1000 --verbose
 python tools\tformat_test.py --port COM78 --data-id 3 --count 1000
 python tools\tformat_test.py --port COM78 --reset position
-python tools\tformat_test.py --port COM78 --eeprom-write 0x20 0xA5
-python tools\tformat_test.py --port COM78 --eeprom-read 0x20
+python tools\tformat_test.py --port COM78 --page 0 --eeprom-write 0x20 0xA5
+python tools\tformat_test.py --port COM78 --page 0 --eeprom-read 0x20
+python tools\tformat_test.py --port COM78 --page 0 --eeprom-read-page
+python tools\tformat_test.py --port COM78 --eeprom-read-all
+python tools\tformat_test.py --port COM78 --page 0 --eeprom-write-page page0.bin
 ```
+
+`--reset` 会自动发送所需的 10 帧序列。页镜像是 127-byte 原始二进制文件；
+整页写入会跳过未变化的字节，并在结束后读回校验。
 
 ## 标定和操作
 
@@ -162,6 +180,8 @@ python tools\tformat_test.py --port COM78 --eeprom-read 0x20
 ## 使用约束
 
 - 产品接口为单圈，ABM 和所有多圈字段固定为 0。
+- 当前存储版本不迁移旧记录。安装改变持久化记录版本的固件后，需执行一次
+  Factory Cal。
 - Flash 擦写期间会暂时停止采样和 T-Format 响应。
 - EEPROM 和零位写入在转轴静止并完成新快照校验后结束 busy 状态。
 - LPUART0 仅供 FreeMASTER 使用；产品 target 不包含 DebugConsole 和普通串口日志。

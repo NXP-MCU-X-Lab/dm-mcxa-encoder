@@ -8,8 +8,11 @@
 #include "fsl_romapi.h"
 #endif
 
-typedef char encoder_storage_record_must_be_256_bytes
+typedef char encoder_storage_record_must_match_configured_size
     [(sizeof(encoder_storage_record_t) == ENCODER_STORAGE_RECORD_SIZE) ? 1 : -1];
+
+static encoder_storage_record_t s_latest_record;
+static encoder_storage_record_t s_write_record;
 
 static uint32_t crc32_update(uint32_t crc, const uint8_t *data, uint32_t length)
 {
@@ -295,31 +298,33 @@ static bool program_record(uint32_t index, const encoder_storage_record_t *recor
 {
     const uint32_t address = ENCODER_STORAGE_FLASH_BASE + (index * ENCODER_STORAGE_RECORD_SIZE);
     const uint8_t *data = (const uint8_t *)record;
+    uint32_t offset;
 
-    return storage_program(address, data) &&
-           storage_program(address + 128U, data + 128U) &&
-           storage_verify(address, data, sizeof(*record));
+    for (offset = 0U; offset < sizeof(*record); offset += 128U)
+    {
+        if (!storage_program(address + offset, data + offset))
+        {
+            return false;
+        }
+    }
+    return storage_verify(address, data, sizeof(*record));
 }
 
 bool EncoderStorage_Load(encoder_persistent_config_t *config, uint32_t *sequence)
 {
-    encoder_storage_record_t latest;
-
     if (!EncoderStorage_SelectLatestRecord(storage_records(),
                                            ENCODER_STORAGE_RECORD_COUNT,
-                                           &latest,
+                                           &s_latest_record,
                                            NULL))
     {
         return false;
     }
 
-    return EncoderStorage_UnpackRecord(&latest, config, sequence);
+    return EncoderStorage_UnpackRecord(&s_latest_record, config, sequence);
 }
 
 bool EncoderStorage_Save(const encoder_persistent_config_t *config)
 {
-    encoder_storage_record_t latest;
-    encoder_storage_record_t record;
     uint32_t latest_index = 0U;
     uint32_t active_sector = 0U;
     uint32_t target_sector;
@@ -338,15 +343,15 @@ bool EncoderStorage_Save(const encoder_persistent_config_t *config)
 
     found = EncoderStorage_SelectLatestRecord(storage_records(),
                                               ENCODER_STORAGE_RECORD_COUNT,
-                                              &latest,
+                                              &s_latest_record,
                                               &latest_index);
     if (found)
     {
         active_sector = latest_index / ENCODER_STORAGE_RECORDS_PER_SECTOR;
-        next_sequence = latest.sequence + 1U;
+        next_sequence = s_latest_record.sequence + 1U;
     }
 
-    EncoderStorage_PackRecord(&record, config, next_sequence);
+    EncoderStorage_PackRecord(&s_write_record, config, next_sequence);
 
 #ifndef ENCODER_STORAGE_HOST_TEST
     if (FLASH_Init(&s_flash_config) != kStatus_FLASH_Success)
@@ -359,14 +364,15 @@ bool EncoderStorage_Save(const encoder_persistent_config_t *config)
     slot = find_erased_record(active_sector);
     if (slot >= 0)
     {
-        saved = program_record((uint32_t)slot, &record);
+        saved = program_record((uint32_t)slot, &s_write_record);
     }
     else
     {
         target_sector = active_sector ^ 1U;
         saved = storage_erase(ENCODER_STORAGE_FLASH_BASE +
                               (target_sector * ENCODER_STORAGE_SECTOR_SIZE)) &&
-                program_record(target_sector * ENCODER_STORAGE_RECORDS_PER_SECTOR, &record);
+                program_record(target_sector * ENCODER_STORAGE_RECORDS_PER_SECTOR,
+                               &s_write_record);
         if (saved)
         {
             (void)storage_erase(ENCODER_STORAGE_FLASH_BASE +

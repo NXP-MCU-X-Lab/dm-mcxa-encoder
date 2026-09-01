@@ -40,6 +40,8 @@ extern uint32_t SystemCoreClock;
 
 #define TFORMAT_ENID               0x10U
 #define TFORMAT_SF_COUNTING_ERROR  0x10U
+#define TFORMAT_SF_PARITY_ERROR    0x40U
+#define TFORMAT_SF_DELIMITER_ERROR 0x80U
 #define TFORMAT_ADF_ADDRESS_MASK   0x7FU
 #define TFORMAT_ADF_BUSY           0x80U
 
@@ -55,8 +57,10 @@ extern uint32_t SystemCoreClock;
 
 #define TFORMAT_FRAME_GAP_US         12U
 #define TFORMAT_MAX_POSITION_AGE_US  (3000000U / ADC_SAMPLE_RATE_HZ)
-#define TFORMAT_OVERSPEED_DPS        (6000.0f * 6.0f)
+#define TFORMAT_OVERSPEED_DPS        (7200.0f * 6.0f)
 #define TFORMAT_VELOCITY_Q           20U
+#define TFORMAT_RESET_COUNT          10U
+#define TFORMAT_RESET_INTERVAL_US    40U
 
 volatile uint32_t tformat_id0_request_count;
 volatile uint32_t tformat_id3_request_count;
@@ -77,6 +81,7 @@ typedef struct _tformat_snapshot
     uint32_t status;
     uint32_t cycle;
     bool ready;
+    bool stationary;
     bool overspeed;
 } tformat_snapshot_t;
 
@@ -90,7 +95,8 @@ static lpuart_edma_handle_t s_lpuart_edma_handle;
 
 static uint8_t s_eeprom[TFORMAT_EEPROM_SIZE];
 static volatile bool s_eeprom_busy;
-static uint8_t s_eeprom_pending_address;
+static uint8_t s_eeprom_page;
+static uint16_t s_eeprom_pending_index;
 static uint8_t s_eeprom_previous_value;
 
 static uint8_t s_rx_frame[4];
@@ -98,10 +104,16 @@ static uint8_t s_rx_len;
 static uint32_t s_rx_last_cycle;
 
 static volatile uint32_t s_reset_requests;
+static volatile uint8_t s_latched_almc;
+static volatile uint8_t s_latched_sf;
+static uint8_t s_reset_cf;
+static uint8_t s_reset_count;
+static uint32_t s_reset_last_cycle;
 static volatile bool s_position_fresh;
 
 static uint32_t s_gap_cycles;
 static uint32_t s_stale_cycles;
+static uint32_t s_reset_interval_cycles;
 static float s_velocity_scale;
 
 static void discard_until_gap(void)
@@ -135,7 +147,7 @@ static uint8_t tformat_crc(const uint8_t *data, uint32_t size)
     return remainder;
 }
 
-void TFormat_Publish(const encoder_result_t *result, bool ready)
+void TFormat_Publish(const encoder_result_t *result, bool ready, bool stationary)
 {
     const uint8_t next = s_active_snapshot ^ 1U;
     tformat_snapshot_t *snapshot = &s_snapshot[next];
@@ -146,6 +158,7 @@ void TFormat_Publish(const encoder_result_t *result, bool ready)
         (int32_t)(velocity_q20 + ((velocity_q20 >= 0.0f) ? 0.5f : -0.5f));
     snapshot->status = result->status;
     snapshot->ready = ready;
+    snapshot->stationary = stationary;
     snapshot->overspeed = (result->angular_velocity_dps > TFORMAT_OVERSPEED_DPS) ||
                           (result->angular_velocity_dps < -TFORMAT_OVERSPEED_DPS);
     snapshot->cycle = DWT->CYCCNT;
@@ -196,7 +209,99 @@ static uint8_t compute_almc(const tformat_snapshot_t *snapshot, uint32_t age_cyc
         almc |= TFORMAT_ALMC_OVERSPEED;
     }
 
-    return almc;
+    s_latched_almc |= almc;
+    return s_latched_almc;
+}
+
+static uint16_t eeprom_index(uint8_t page, uint8_t address)
+{
+    return (uint16_t)(((uint16_t)page * TFORMAT_EEPROM_PAGE_SIZE) + address);
+}
+
+static bool is_reset_cf(uint8_t cf)
+{
+    return (cf == TFORMAT_CF_ID7) || (cf == TFORMAT_CF_ID8) ||
+           (cf == TFORMAT_CF_IDC);
+}
+
+static void reset_sequence_clear(void)
+{
+    s_reset_cf = 0U;
+    s_reset_count = 0U;
+}
+
+static void process_reset_sequence(uint8_t cf, uint32_t now)
+{
+    if (!is_reset_cf(cf))
+    {
+        reset_sequence_clear();
+        return;
+    }
+
+    if ((s_reset_count != 0U) &&
+        ((s_reset_cf != cf) ||
+         ((now - s_reset_last_cycle) < s_reset_interval_cycles)))
+    {
+        reset_sequence_clear();
+        return;
+    }
+
+    if (s_reset_count == 0U)
+    {
+        s_reset_cf = cf;
+        s_reset_count = 1U;
+    }
+    else
+    {
+        s_reset_count++;
+    }
+    s_reset_last_cycle = now;
+
+    if (s_reset_count < TFORMAT_RESET_COUNT)
+    {
+        return;
+    }
+
+    reset_sequence_clear();
+    if (cf == TFORMAT_CF_ID7)
+    {
+        s_latched_almc = 0U;
+        s_latched_sf = 0U;
+        s_reset_requests |= TFORMAT_RESET_ERROR;
+    }
+    else if (cf == TFORMAT_CF_ID8)
+    {
+        const tformat_snapshot_t *snapshot = &s_snapshot[s_active_snapshot];
+
+        if (snapshot->ready && snapshot->stationary)
+        {
+            s_reset_requests |= TFORMAT_RESET_POSITION;
+        }
+        else
+        {
+            s_latched_almc |= TFORMAT_ALMC_COUNT_ERROR;
+        }
+    }
+    else
+    {
+        s_reset_requests |= TFORMAT_RESET_MULTITURN;
+    }
+}
+
+static uint8_t expected_cf(uint8_t cf)
+{
+    const uint8_t data_id = (cf >> 3U) & 0x0FU;
+    const uint8_t parity = (data_id ^ (data_id >> 1U) ^
+                            (data_id >> 2U) ^ (data_id >> 3U)) & 1U;
+
+    return 0x02U | (uint8_t)(data_id << 3U) | (uint8_t)(parity << 7U);
+}
+
+static bool has_cf_parity_error(uint8_t cf)
+{
+    const uint8_t expected = expected_cf(cf);
+
+    return ((cf & 0x07U) == 0x02U) && (cf != expected);
 }
 
 static void fill_position(uint8_t offset, uint32_t position)
@@ -211,8 +316,9 @@ static uint8_t build_response(uint8_t cf, const uint8_t *request)
     const tformat_snapshot_t *snapshot = &s_snapshot[s_active_snapshot];
     const uint32_t age_cycles = DWT->CYCCNT - snapshot->cycle;
     const uint8_t almc = compute_almc(snapshot, age_cycles);
-    const uint8_t sf = ((almc & TFORMAT_ALMC_COUNT_ERROR) != 0U) ?
-                           TFORMAT_SF_COUNTING_ERROR : 0U;
+    const uint8_t sf = (((almc & TFORMAT_ALMC_COUNT_ERROR) != 0U) ?
+                            TFORMAT_SF_COUNTING_ERROR : 0U) |
+                       s_latched_sf;
     const uint32_t position = ((almc & TFORMAT_ALMC_COUNT_ERROR) == 0U) ?
                                   extrapolate(snapshot, age_cycles) :
                                   snapshot->counts;
@@ -251,16 +357,37 @@ static uint8_t build_response(uint8_t cf, const uint8_t *request)
         {
             const uint8_t address = request[1] & TFORMAT_ADF_ADDRESS_MASK;
 
-            if (!s_eeprom_busy)
+            if (s_eeprom_busy)
             {
-                s_eeprom_pending_address = address;
-                s_eeprom_previous_value = s_eeprom[address];
-                s_eeprom[address] = request[2];
+                s_tx_frame[1] = address | TFORMAT_ADF_BUSY;
+                s_tx_frame[2] = 0U;
+            }
+            else if (address == TFORMAT_ADF_ADDRESS_MASK)
+            {
+                if (request[2] < TFORMAT_EEPROM_PAGE_COUNT)
+                {
+                    s_eeprom_page = request[2];
+                }
+                s_tx_frame[1] = address;
+                s_tx_frame[2] = s_eeprom_page;
+            }
+            else if (s_eeprom_page < TFORMAT_EEPROM_DATA_PAGES)
+            {
+                const uint16_t index = eeprom_index(s_eeprom_page, address);
+
+                s_eeprom_pending_index = index;
+                s_eeprom_previous_value = s_eeprom[index];
+                s_eeprom[index] = request[2];
                 s_eeprom_busy = true;
                 tformat_eeprom_write_count++;
+                s_tx_frame[1] = address | TFORMAT_ADF_BUSY;
+                s_tx_frame[2] = request[2];
             }
-            s_tx_frame[1] = address | TFORMAT_ADF_BUSY;
-            s_tx_frame[2] = request[2];
+            else
+            {
+                s_tx_frame[1] = address;
+                s_tx_frame[2] = 0xFFU;
+            }
             length = TFORMAT_LEN_EEPROM;
             break;
         }
@@ -269,28 +396,39 @@ static uint8_t build_response(uint8_t cf, const uint8_t *request)
         {
             const uint8_t address = request[1] & TFORMAT_ADF_ADDRESS_MASK;
 
-            s_tx_frame[1] = address | (s_eeprom_busy ? TFORMAT_ADF_BUSY : 0U);
-            s_tx_frame[2] = s_eeprom[address];
+            if (s_eeprom_busy)
+            {
+                s_tx_frame[1] = address | TFORMAT_ADF_BUSY;
+                s_tx_frame[2] = 0U;
+            }
+            else if (address == TFORMAT_ADF_ADDRESS_MASK)
+            {
+                s_tx_frame[1] = address;
+                s_tx_frame[2] = s_eeprom_page;
+            }
+            else
+            {
+                s_tx_frame[1] = address;
+                s_tx_frame[2] = (s_eeprom_page < TFORMAT_EEPROM_DATA_PAGES) ?
+                                    s_eeprom[eeprom_index(s_eeprom_page, address)] : 0xFFU;
+            }
             length = TFORMAT_LEN_EEPROM;
             break;
         }
 
         case TFORMAT_CF_ID7:
-            s_reset_requests |= TFORMAT_RESET_ERROR;
             s_tx_frame[1] = sf;
             fill_position(2U, position);
             length = TFORMAT_LEN_POSITION;
             break;
 
         case TFORMAT_CF_ID8:
-            s_reset_requests |= TFORMAT_RESET_POSITION;
             s_tx_frame[1] = sf;
             fill_position(2U, position);
             length = TFORMAT_LEN_POSITION;
             break;
 
         case TFORMAT_CF_IDC:
-            s_reset_requests |= TFORMAT_RESET_MULTITURN;
             s_tx_frame[1] = sf;
             fill_position(2U, position);
             length = TFORMAT_LEN_POSITION;
@@ -353,12 +491,21 @@ uint32_t TFormat_TakeResetRequests(void)
     return requests;
 }
 
+void TFormat_ReportCountingError(void)
+{
+    const uint32_t irq_mask = DisableGlobalIRQ();
+
+    s_latched_almc |= TFORMAT_ALMC_COUNT_ERROR;
+    EnableGlobalIRQ(irq_mask);
+}
+
 void TFormat_LoadEeprom(const uint8_t data[TFORMAT_EEPROM_SIZE])
 {
     const uint32_t irq_mask = DisableGlobalIRQ();
 
     memcpy(s_eeprom, data, sizeof(s_eeprom));
     s_eeprom_busy = false;
+    s_eeprom_page = 0U;
     EnableGlobalIRQ(irq_mask);
 }
 
@@ -383,7 +530,7 @@ void TFormat_CompleteEepromWrite(bool saved)
     {
         if (!saved)
         {
-            s_eeprom[s_eeprom_pending_address] = s_eeprom_previous_value;
+            s_eeprom[s_eeprom_pending_index] = s_eeprom_previous_value;
             tformat_eeprom_error_count++;
         }
         s_eeprom_busy = false;
@@ -480,9 +627,16 @@ void TFormat_Init(void)
 
     s_gap_cycles = (SystemCoreClock / 1000000U) * TFORMAT_FRAME_GAP_US;
     s_stale_cycles = (SystemCoreClock / 1000000U) * TFORMAT_MAX_POSITION_AGE_US;
+    s_reset_interval_cycles =
+        (SystemCoreClock / 1000000U) * TFORMAT_RESET_INTERVAL_US;
     s_velocity_scale = ((float)ENCODER_COUNTS_PER_REV * (float)(1UL << TFORMAT_VELOCITY_Q)) /
                        (360.0f * (float)SystemCoreClock);
     memset(s_eeprom, 0xFF, sizeof(s_eeprom));
+    s_eeprom_page = 0U;
+    s_eeprom_busy = false;
+    s_latched_almc = 0U;
+    s_latched_sf = 0U;
+    reset_sequence_clear();
 
     PORT_SetPinMux(TFORMAT_DIR_PORT, TFORMAT_DIR_PIN, kPORT_MuxAsGpio);
     GPIO_PinInit(TFORMAT_DIR_GPIO, TFORMAT_DIR_PIN, &direction_config);
@@ -535,7 +689,15 @@ static void receive_byte(uint8_t byte)
     expected = request_length(s_rx_frame[0]);
     if (expected == 0U)
     {
-        tformat_unsupported_count++;
+        if (has_cf_parity_error(s_rx_frame[0]))
+        {
+            s_latched_sf |= TFORMAT_SF_PARITY_ERROR;
+        }
+        else
+        {
+            tformat_unsupported_count++;
+        }
+        reset_sequence_clear();
         discard_until_gap();
         return;
     }
@@ -549,6 +711,7 @@ static void receive_byte(uint8_t byte)
         (tformat_crc(s_rx_frame, expected - 1U) != s_rx_frame[expected - 1U]))
     {
         tformat_crc_error_count++;
+        reset_sequence_clear();
         discard_until_gap();
         return;
     }
@@ -557,9 +720,11 @@ static void receive_byte(uint8_t byte)
     if (s_tx_busy)
     {
         tformat_busy_count++;
+        reset_sequence_clear();
     }
     else
     {
+        process_reset_sequence(s_rx_frame[0], now);
         send_response(s_rx_frame[0], s_rx_frame);
     }
     discard_until_gap();
@@ -583,6 +748,11 @@ void LPUART2_IRQHandler(void)
     if ((status & error_flags) != 0U)
     {
         tformat_uart_error_count++;
+        if ((status & (uint32_t)kLPUART_FramingErrorFlag) != 0U)
+        {
+            s_latched_sf |= TFORMAT_SF_DELIMITER_ERROR;
+        }
+        reset_sequence_clear();
         (void)LPUART_ClearStatusFlags(LPUART2, status & error_flags);
         discard_until_gap();
         while ((LPUART_GetStatusFlags(LPUART2) & (uint32_t)kLPUART_RxDataRegFullFlag) != 0U)
